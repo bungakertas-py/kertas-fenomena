@@ -1,0 +1,18 @@
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+
+# Data hasil generate (dibuat ulang oleh GitHub Actions saat deploy)
+frontend/data/output/
+
+# GRIB/NetCDF sementara
+*.nc
+
+# Aset desain / mockup Stitch (referensi lokal, tak perlu di repo)
+Style/
+Style2/
+*.zip
+
+# Screenshot scratch
+scratchpad_shot.png

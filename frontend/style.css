@@ -1,0 +1,226 @@
+/* ================================================================
+   Kertas Fenomena - skin NEUBRUTALIST (disamakan dgn Kertas Cuaca):
+   border ink 3px, hard-shadow 6px tanpa blur, sudut siku 0px,
+   biru #0029d7 + lime #d2ed26, Archivo Black / Space Grotesk / JetBrains Mono.
+   ================================================================ */
+:root {
+  --ink: #1c1b1b;
+  --paper: #fcf8f8;
+  --surface: #fcf8f8;
+  --surface-low: #f6f3f2;
+  --surface-high: #ebe7e7;
+  --white: #ffffff;
+  --primary: #0029d7;
+  --on-primary: #ffffff;
+  --lime: #d2ed26;
+  --on-lime: #5c6900;
+  --variant: #444656;
+  --warm: #d61f1f;
+  --warm-bg: #ffd9cf;
+  --cool: #0029d7;
+  --cool-bg: #cfe0ff;
+  --map-bg: #0a1018;
+
+  --bw: 3px;
+  --shadow: 6px 6px 0 0 var(--ink);
+  --shadow-sm: 4px 4px 0 0 var(--ink);
+
+  --font-display: "Archivo Black", sans-serif;
+  --font-ui: "Space Grotesk", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: var(--font-ui); font-weight: 500;
+  color: var(--ink); background: var(--map-bg); overflow: hidden;
+}
+.material-symbols-outlined {
+  font-variation-settings: "FILL" 0, "wght" 500, "GRAD" 0, "opsz" 24;
+  font-size: 22px; line-height: 1; display: block; user-select: none;
+}
+
+#stage { position: fixed; inset: 0; }
+
+/* ===== Backdrop peta ===== */
+.backdrop { position: absolute; inset: 0; z-index: 0; background: var(--map-bg); }
+.blob, .grid-overlay { display: none; }
+
+#map { position: absolute; inset: 0; z-index: 1; background: var(--map-bg); }
+.sst-overlay { image-rendering: auto; }
+.leaflet-container { background: var(--map-bg); font-family: var(--font-ui); }
+.leaflet-control-attribution { background: rgba(255,255,255,0.85) !important; color: var(--variant) !important; font-size: 10px; }
+.box-lbl { font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+  color: #fff; text-shadow: 0 0 3px #000, 1px 1px 0 #000; white-space: nowrap; pointer-events: none; }
+.leaflet-marker-icon.box-lbl { background: transparent; border: 0; }
+
+/* ===== Panel dasar neubrutalist (dulu .glass) ===== */
+.glass {
+  background: var(--surface); border: var(--bw) solid var(--ink);
+  box-shadow: var(--shadow); border-radius: 0; position: relative;
+}
+.glass::before { display: none; }
+
+.mono-label { font-family: var(--font-ui); font-weight: 700; font-size: 11px;
+  letter-spacing: 0.05em; text-transform: uppercase; color: var(--variant); }
+
+/* ===== Brand ===== */
+.brand { position: absolute; z-index: 30; left: 20px; top: 20px; padding: 10px 14px 10px 11px; }
+.brand-top { display: flex; align-items: center; gap: 11px; }
+.brand-mark { flex: none; display: grid; place-items: center; }
+.brand-txt { display: flex; flex-direction: column; line-height: 1.05; }
+.brand-name { font-family: var(--font-display); font-size: 20px; letter-spacing: -0.01em; }
+.brand-tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; color: var(--variant); margin-top: 5px; }
+.brand-info { flex: none; width: 32px; height: 32px; margin-left: 8px; border: var(--bw) solid var(--ink); background: var(--surface); box-shadow: var(--shadow-sm); }
+.brand-info .material-symbols-outlined { font-size: 18px; }
+
+/* ===== Panel layer ===== */
+.panel-left { position: absolute; z-index: 25; left: 20px; top: 92px; width: 232px; padding: 0; overflow: hidden; }
+.panel-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--ink); color: var(--lime); }
+.panel-head .material-symbols-outlined { font-size: 18px; color: var(--lime); }
+.panel-head .mono-label { color: var(--lime); }
+.layer-list { display: flex; flex-direction: column; }
+.layer-btn { display: flex; align-items: center; gap: 12px; width: 100%; cursor: pointer;
+  border: 0; border-bottom: var(--bw) solid var(--ink); background: var(--surface); color: var(--ink);
+  font-family: var(--font-ui); font-weight: 700; font-size: 14px; text-transform: uppercase; text-align: left;
+  padding: 10px 14px; }
+.layer-btn .material-symbols-outlined { font-size: 20px; color: var(--primary); }
+.layer-btn:hover:not(.active) { background: var(--surface-high); }
+.layer-btn.active { background: var(--lime); color: var(--on-lime); }
+.layer-btn.active .material-symbols-outlined { color: var(--on-lime); }
+
+.panel-sub { padding: 8px 14px 4px; }
+.ov-row { display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--font-ui); font-weight: 700; font-size: 13px; text-transform: uppercase;
+  padding: 8px 14px; cursor: pointer; border-top: var(--bw) solid var(--ink); }
+
+/* Switch neubrutalist (kotak) */
+.switch { position: relative; display: inline-block; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch .track { display: block; width: 36px; height: 18px; border: 2px solid var(--ink);
+  background: var(--white); position: relative; }
+.switch .track::after { content: ""; position: absolute; top: 1px; left: 1px; width: 12px; height: 12px;
+  background: var(--ink); transition: transform .12s; }
+.switch input:checked + .track { background: var(--lime); }
+.switch input:checked + .track::after { transform: translateX(19px); }
+
+/* ===== Kontrol kanan ===== */
+.controls { position: absolute; z-index: 30; right: 20px; top: 20px; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+.ctrl-stack { display: flex; flex-direction: column; }
+.icon-btn { display: grid; place-items: center; width: 40px; height: 40px; cursor: pointer;
+  border: 0; background: var(--surface); color: var(--ink); }
+.ctrl-stack .icon-btn { border-bottom: var(--bw) solid var(--ink); }
+.ctrl-stack .icon-btn:last-child { border-bottom: 0; }
+.icon-btn:hover { background: var(--surface-high); }
+.icon-btn.active { background: var(--primary); color: var(--on-primary); }
+
+.lang { display: inline-flex; padding: 0; font-family: var(--font-mono); font-weight: 700; font-size: 12px; }
+.lang .on, .lang .off { padding: 8px 12px; }
+.lang .on { background: var(--primary); color: var(--on-primary); }
+.lang .off { color: var(--variant); }
+
+.icon-btn[data-tip] { position: relative; }
+@media (hover: hover) {
+  .icon-btn[data-tip]:hover::after {
+    content: attr(data-tip); position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+    white-space: nowrap; font-family: var(--font-ui); font-weight: 700; font-size: 11px; text-transform: uppercase;
+    color: var(--paper); background: var(--ink); padding: 5px 8px; border: 2px solid var(--ink); pointer-events: none; }
+}
+
+/* ===== Panel Indeks ===== */
+.index-panel { position: absolute; z-index: 40; right: 20px; top: 76px; width: 300px; padding: 0; }
+.index-panel[hidden] { display: none; }
+.ip-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--ink); color: var(--paper); }
+.ip-title { font-family: var(--font-display); font-size: 15px; }
+.ip-close { width: 28px; height: 28px; background: transparent; color: var(--paper); }
+.ip-close:hover { background: rgba(255,255,255,0.15); }
+.ip-note { margin: 0; padding: 8px 14px; font-family: var(--font-mono); font-size: 10px; color: var(--variant); border-bottom: var(--bw) solid var(--ink); }
+.ip-card { padding: 14px; border-bottom: var(--bw) solid var(--ink); }
+.ip-card:last-child { border-bottom: 0; }
+.ip-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.ip-big { font-family: var(--font-display); font-size: 30px; letter-spacing: -0.02em; line-height: 1; }
+.ip-big .unit { font-family: var(--font-mono); font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--variant); margin-left: 5px; }
+.ip-cap { display: block; margin-top: 8px; font-family: var(--font-mono); font-size: 10px; color: var(--variant); }
+.spark { width: 100%; height: 30px; margin-top: 8px; overflow: visible; border: 2px solid var(--ink); background: var(--white); padding: 3px; }
+.spark polyline { fill: none; stroke: var(--primary); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.ip-fc { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 2px dashed var(--ink); }
+.ip-fc-val { font-family: var(--font-mono); font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--ink); }
+
+/* Chip status neubrutalist */
+.chip { display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-mono);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 4px 9px; border: 2px solid var(--ink); background: var(--white); color: var(--ink); }
+.chip::before { content: ""; width: 8px; height: 8px; background: var(--variant); flex: none; }
+.chip-neutral { background: var(--lime); color: var(--on-lime); }
+.chip-neutral::before { background: var(--on-lime); }
+.chip-warm { background: var(--warm-bg); color: var(--warm); }
+.chip-warm::before { background: var(--warm); }
+.chip-cool { background: var(--cool-bg); color: var(--cool); }
+.chip-cool::before { background: var(--cool); }
+
+/* ===== Timeline ===== */
+.timeline { position: absolute; z-index: 30; left: 20px; bottom: 20px; right: 340px;
+  display: flex; align-items: center; gap: 14px; padding: 12px 16px; }
+.play { width: 42px; height: 42px; flex: none; border: var(--bw) solid var(--ink); background: var(--primary); color: var(--on-primary); box-shadow: var(--shadow-sm); }
+.play:hover { background: var(--lime); color: var(--on-lime); }
+.tl-body { flex: 1; }
+.tl-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+.tl-time { font-family: var(--font-display); font-size: 15px; }
+.tl-horizon { color: var(--variant); }
+.range { -webkit-appearance: none; appearance: none; width: 100%; height: 10px; border: 2px solid var(--ink);
+  background: linear-gradient(90deg, var(--lime), var(--lime)) no-repeat, var(--white);
+  background-size: 0% 100%; cursor: pointer; }
+.range::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 0;
+  background: var(--ink); border: 0; cursor: grab; }
+.range::-moz-range-thumb { width: 16px; height: 16px; border-radius: 0; background: var(--ink); border: 0; cursor: grab; }
+.ticks { display: flex; justify-content: space-between; margin-top: 6px; }
+.ticks span { font-family: var(--font-mono); font-size: 9px; text-transform: uppercase; color: var(--variant); }
+
+/* ===== Legenda ===== */
+.legend { position: absolute; z-index: 30; right: 20px; bottom: 20px; width: 300px; padding: 12px 14px; }
+.lg-title { margin-bottom: 8px; }
+.lg-bar { height: 12px; border: 2px solid var(--ink); }
+.lg-scale { display: flex; justify-content: space-between; margin-top: 6px; }
+.lg-scale span { font-family: var(--font-mono); font-size: 10px; color: var(--variant); }
+
+/* ===== Panel titik ===== */
+.point-panel { position: absolute; z-index: 35; right: 20px; top: 76px; width: 300px; padding: 14px; }
+.point-panel[hidden] { display: none; }
+.pp-head { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 10px; margin-bottom: 12px; border-bottom: var(--bw) solid var(--ink); }
+.pp-loc { font-family: var(--font-mono); font-weight: 700; font-size: 15px; margin-top: 4px; color: var(--primary); }
+.pp-summary { font-family: var(--font-ui); font-size: 13px; line-height: 1.5; color: var(--ink); margin: 0 0 12px; }
+.pp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ===== Kartu nama / Tentang ===== */
+.about-overlay { position: fixed; inset: 0; z-index: 3000; display: none; align-items: center; justify-content: center;
+  padding: 24px; background: rgba(10, 16, 24, 0.72); }
+.about-overlay.show { display: flex; }
+.about-card { position: relative; display: flex; width: 100%; max-width: 600px;
+  background: var(--surface); border: var(--bw) solid var(--ink); box-shadow: var(--shadow); }
+.about-close { position: absolute; top: 8px; right: 8px; z-index: 2; width: 30px; height: 30px;
+  border: var(--bw) solid var(--ink); background: var(--surface); }
+.about-close .material-symbols-outlined { font-size: 18px; }
+.about-photo { flex: 0 0 42%; background: var(--lime); border-right: var(--bw) solid var(--ink); display: flex; align-items: flex-end; }
+.about-photo img { width: 100%; height: auto; display: block; }
+.about-body { flex: 1; min-width: 0; padding: 22px 20px 24px; display: flex; flex-direction: column; gap: 12px; }
+.about-tag { align-self: flex-start; font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.1em; background: var(--ink); color: var(--paper); padding: 3px 8px; }
+.about-name { font-family: var(--font-display); font-size: 26px; letter-spacing: -0.01em; line-height: 1; margin: 0; }
+.about-intro { font-family: var(--font-ui); font-size: 13px; line-height: 1.5; color: var(--ink); margin: 0; }
+.about-quote { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--ink);
+  background: var(--lime); border: 2px solid var(--ink); padding: 10px 12px; margin-top: auto; }
+
+/* ===== Responsif ringkas ===== */
+@media (max-width: 720px) {
+  .timeline { right: 20px; }
+  .legend, .index-panel, .point-panel { width: calc(100vw - 40px); }
+  .panel-left { top: 96px; }
+  .about-card { flex-direction: column; max-width: 340px; max-height: 88vh; overflow-y: auto; }
+  .about-photo { flex: none; border-right: 0; border-bottom: var(--bw) solid var(--ink); }
+}
+
+/* Scrollbar neubrutalist */
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: var(--surface-high); border-left: 2px solid var(--ink); }
+::-webkit-scrollbar-thumb { background: var(--ink); border: 3px solid var(--surface-high); }
