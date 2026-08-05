@@ -28,6 +28,11 @@ const map = L.map("map", {
   maxBounds: [[-58, 15], [58, 305]], maxBoundsViscosity: 0.5,
 }).setView([-2, 118], 3.2);
 
+// Panes: urutan z (peta SST < garis pantai < kotak indeks)
+map.createPane("sst"); map.getPane("sst").style.zIndex = 400;
+map.createPane("coast"); map.getPane("coast").style.zIndex = 410; map.getPane("coast").style.pointerEvents = "none";
+map.createPane("boxes"); map.getPane("boxes").style.zIndex = 420; map.getPane("boxes").style.pointerEvents = "none";
+
 /* ---- Legenda ---- */
 function renderLegend() {
   document.getElementById("lg-title").textContent = ANOM_LEGEND.title;
@@ -52,21 +57,21 @@ function boxRect(b, opts) {
 }
 function buildOverlays() {
   const bx = state.boxes;
-  const nOpt = { color: "#0029d7", weight: 2, fill: false, interactive: false };
-  const nOptHi = { color: "#0029d7", weight: 3, fill: true, fillColor: "#0029d7", fillOpacity: 0.10, interactive: false };
+  const nOpt = { color: "#0029d7", weight: 2, fill: false, interactive: false, pane: "boxes" };
+  const nOptHi = { color: "#0029d7", weight: 3, fill: true, fillColor: "#0029d7", fillOpacity: 0.10, interactive: false, pane: "boxes" };
   ninoLayer = L.layerGroup([
     boxRect(bx.nino4, nOpt), boxRect(bx.nino3, nOpt), boxRect(bx.nino12, nOpt),
     boxRect(bx.nino34, nOptHi),
-    L.marker([6, nlng(215)], { interactive: false, icon: L.divIcon({ className: "box-lbl", html: "NINO 3.4", iconSize: [60, 14] }) }),
+    L.marker([6, nlng(215)], { interactive: false, pane: "boxes", icon: L.divIcon({ className: "box-lbl", html: "NINO 3.4", iconSize: [60, 14] }) }),
   ]);
-  const iOpt = { color: "#e64980", weight: 3, fill: true, fillColor: "#e64980", fillOpacity: 0.10, interactive: false };
+  const iOpt = { color: "#e64980", weight: 3, fill: true, fillColor: "#e64980", fillOpacity: 0.10, interactive: false, pane: "boxes" };
   iodLayer = L.layerGroup([
     boxRect(bx.iod_west, iOpt), boxRect(bx.iod_east, iOpt),
-    L.marker([12, 60], { interactive: false, icon: L.divIcon({ className: "box-lbl", html: "IOD W", iconSize: [40, 14] }) }),
-    L.marker([2, 100], { interactive: false, icon: L.divIcon({ className: "box-lbl", html: "IOD E", iconSize: [40, 14] }) }),
+    L.marker([12, 60], { interactive: false, pane: "boxes", icon: L.divIcon({ className: "box-lbl", html: "IOD W", iconSize: [40, 14] }) }),
+    L.marker([2, 100], { interactive: false, pane: "boxes", icon: L.divIcon({ className: "box-lbl", html: "IOD E", iconSize: [40, 14] }) }),
   ]);
   // equator tipis
-  L.polyline([[0, state.domain.lonW], [0, state.domain.lonE]], { color: "#ffffff", weight: 1, opacity: 0.18, dashArray: "4 6", interactive: false }).addTo(map);
+  L.polyline([[0, state.domain.lonW], [0, state.domain.lonE]], { color: "#ffffff", weight: 1, opacity: 0.18, dashArray: "4 6", interactive: false, pane: "boxes" }).addTo(map);
   if (document.getElementById("ov-nino").checked) ninoLayer.addTo(map);
   if (document.getElementById("ov-iod").checked) iodLayer.addTo(map);
 }
@@ -79,7 +84,7 @@ function showFrame(i) {
   const bounds = [[d.latS, d.lonW], [d.latN, d.lonE]];
   const url = "data/output/" + f.png;
   if (overlay) overlay.setUrl(url), overlay.setBounds(bounds);
-  else overlay = L.imageOverlay(url, bounds, { opacity: 0.9, interactive: false, className: "sst-overlay" }).addTo(map);
+  else overlay = L.imageOverlay(url, bounds, { opacity: 0.9, interactive: false, pane: "sst", className: "sst-overlay" }).addTo(map);
   // timeline
   document.getElementById("tl-time").textContent = fmtDate(f.date);
   document.getElementById("time-range").value = frameIdx;
@@ -203,6 +208,13 @@ document.getElementById("fs-btn").addEventListener("click", () => {
   else document.exitFullscreen?.();
 });
 document.getElementById("lang-btn").addEventListener("click", (e) => e.currentTarget.classList.toggle("en"));
+
+/* ---- Garis pantai ---- */
+fetch("data/coast.geojson", { cache: "no-store" })
+  .then((r) => r.json())
+  .then((gj) => L.geoJSON(gj, { pane: "coast", interactive: false,
+    style: { color: "#ffffff", weight: 0.7, opacity: 0.5, fillOpacity: 0 } }).addTo(map))
+  .catch(() => {});
 
 /* ---- Init ---- */
 renderLayerList();

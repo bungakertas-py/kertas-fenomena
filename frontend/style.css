@@ -77,9 +77,9 @@ body {
 
 /* ===== Panel layer ===== */
 .panel-left { position: absolute; z-index: 25; left: 20px; top: 92px; width: 232px; padding: 0; overflow: hidden; }
-.panel-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--ink); color: var(--lime); }
-.panel-head .material-symbols-outlined { font-size: 18px; color: var(--lime); }
-.panel-head .mono-label { color: var(--lime); }
+.panel-head { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: var(--surface); color: var(--variant); border-bottom: var(--bw) solid var(--ink); }
+.panel-head .material-symbols-outlined { font-size: 18px; color: var(--primary); }
+.panel-head .mono-label { color: var(--variant); }
 .layer-list { display: flex; flex-direction: column; }
 .layer-btn { display: flex; align-items: center; gap: 12px; width: 100%; cursor: pointer;
   border: 0; border-bottom: var(--bw) solid var(--ink); background: var(--surface); color: var(--ink);
@@ -131,10 +131,10 @@ body {
 /* ===== Panel Indeks ===== */
 .index-panel { position: absolute; z-index: 40; right: 20px; top: 76px; width: 300px; padding: 0; }
 .index-panel[hidden] { display: none; }
-.ip-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--ink); color: var(--paper); }
+.ip-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; background: var(--surface); color: var(--ink); border-bottom: var(--bw) solid var(--ink); }
 .ip-title { font-family: var(--font-display); font-size: 15px; }
-.ip-close { width: 28px; height: 28px; background: transparent; color: var(--paper); }
-.ip-close:hover { background: rgba(255,255,255,0.15); }
+.ip-close { width: 28px; height: 28px; background: transparent; color: var(--ink); }
+.ip-close:hover { background: var(--surface-high); }
 .ip-note { margin: 0; padding: 8px 14px; font-family: var(--font-mono); font-size: 10px; color: var(--variant); border-bottom: var(--bw) solid var(--ink); }
 .ip-card { padding: 14px; border-bottom: var(--bw) solid var(--ink); }
 .ip-card:last-child { border-bottom: 0; }
@@ -144,7 +144,7 @@ body {
 .ip-cap { display: block; margin-top: 8px; font-family: var(--font-mono); font-size: 10px; color: var(--variant); }
 .spark { width: 100%; height: 30px; margin-top: 8px; overflow: visible; border: 2px solid var(--ink); background: var(--white); padding: 3px; }
 .spark polyline { fill: none; stroke: var(--primary); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.ip-fc { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 2px dashed var(--ink); }
+.ip-fc { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 2px solid var(--ink); }
 .ip-fc-val { font-family: var(--font-mono); font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--ink); }
 
 /* Chip status neubrutalist */
@@ -169,11 +169,10 @@ body {
 .tl-time { font-family: var(--font-display); font-size: 15px; }
 .tl-horizon { color: var(--variant); }
 .range { -webkit-appearance: none; appearance: none; width: 100%; height: 10px; border: 2px solid var(--ink);
-  background: linear-gradient(90deg, var(--lime), var(--lime)) no-repeat, var(--white);
-  background-size: 0% 100%; cursor: pointer; }
+  background: var(--white); cursor: pointer; }
 .range::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 0;
-  background: var(--ink); border: 0; cursor: grab; }
-.range::-moz-range-thumb { width: 16px; height: 16px; border-radius: 0; background: var(--ink); border: 0; cursor: grab; }
+  background: var(--lime); border: 2px solid var(--ink); cursor: grab; }
+.range::-moz-range-thumb { width: 16px; height: 16px; border-radius: 0; background: var(--lime); border: 2px solid var(--ink); cursor: grab; }
 .ticks { display: flex; justify-content: space-between; margin-top: 6px; }
 .ticks span { font-family: var(--font-mono); font-size: 9px; text-transform: uppercase; color: var(--variant); }
 
