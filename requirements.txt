@@ -1,4 +1,6 @@
 numpy>=1.24
+eccodes>=2.40
 netCDF4>=1.6
+copernicusmarine>=2.0
 Pillow>=10
 requests>=2.28

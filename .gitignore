@@ -16,3 +16,11 @@ Style2/
 
 # Screenshot scratch
 scratchpad_shot.png
+SS*.png
+*.gif
+
+# Aset/skrip pendekatan lama (tak dipakai lagi)
+frontend/data/terrain.png
+frontend/data/land_10m.geojson
+backend/pipeline/prep_terrain.py
+backend/pipeline/prep_land.py

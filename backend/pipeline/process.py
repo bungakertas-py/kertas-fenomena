@@ -1,112 +1,379 @@
-"""Proses grid: baca OISST resolusi asli 0.25, hitung anomali, render PNG, indeks kotak.
-
-Data SST dipakai resolusi asli 0.25 derajat (detail, tampilan mulus). Klimatologi
-disimpan 1 derajat (aset kecil) lalu di-upsample halus ke 0.25 saat menghitung anomali
-(klimatologi bervariasi mulus, jadi upsample tak kehilangan info berarti).
+"""Proses GFS: decode GRIB (eccodes), render SST/Anomali/Klimatologi (berpita),
+velocity JSON angin, dan indeks kotak. Orientasi seragam: baris-0 = utara, kolom-0 = barat.
 """
+import json
+import math
+import os
+
 import numpy as np
-from netCDF4 import Dataset
-from PIL import Image, ImageFilter
+import eccodes as ec
+from PIL import Image, ImageFilter, ImageDraw
 
 from . import config as C
 
+MS_TO_KT = 1.943844
+LAND_GEOJSON = os.path.join(C.ROOT, "frontend", "data", "osm_land.geojson")  # coastline SAMA dgn tile OSM (z<=9)
+_LMASK = {}
+
+
+def land_render_mask(west, east, north, south, W, H, erode=0):
+    """Raster boolean darat (True=darat) dari poligon 10m di grid W x H utk bounds diberikan.
+    Dipakai jadi alpha data: laut opaque, darat transparan (biar basemap OSM tembus di darat).
+    `erode` = kikis darat n piksel (~0.08 deg/px) supaya data nembus ke garis pantai OSM (tutup jahitan)."""
+    key = (round(west, 3), round(east, 3), round(north, 3), round(south, 3), W, H, erode)
+    if key in _LMASK:
+        return _LMASK[key]
+    gj = json.load(open(LAND_GEOJSON, encoding="utf-8"))
+    img = Image.new("L", (W, H), 0)
+    d = ImageDraw.Draw(img)
+
+    def px(ring):
+        return [((lon - west) / (east - west) * (W - 1), (north - lat) / (north - south) * (H - 1))
+                for lon, lat in ring]
+
+    for feat in gj["features"]:          # SEMUA fitur (osm_land lama + darat lintang tinggi)
+        geom = feat["geometry"]
+        polys = geom["coordinates"] if geom["type"] == "MultiPolygon" else [geom["coordinates"]]
+        for poly in polys:
+            if not poly or len(poly[0]) < 3:
+                continue
+            d.polygon(px(poly[0]), fill=255)
+            for hole in poly[1:]:
+                if len(hole) >= 3:
+                    d.polygon(px(hole), fill=0)
+    if erode:
+        img = img.filter(ImageFilter.MinFilter(erode * 2 + 1))   # kikis darat -> data maju ke pantai OSM
+    m = np.asarray(img) >= 128
+    _LMASK[key] = m
+    return m
+
+
+# ================= Decode GRIB =================
+def read_grib(path):
+    """Baca semua pesan GRIB -> ({shortName: array north-up}, meta grid)."""
+    fields = {}
+    meta = None
+    with open(path, "rb") as f:
+        while True:
+            g = ec.codes_grib_new_from_file(f)
+            if g is None:
+                break
+            sn = ec.codes_get(g, "shortName")
+            Ni = ec.codes_get(g, "Ni"); Nj = ec.codes_get(g, "Nj")
+            la1 = ec.codes_get(g, "latitudeOfFirstGridPointInDegrees")
+            la2 = ec.codes_get(g, "latitudeOfLastGridPointInDegrees")
+            lo1 = ec.codes_get(g, "longitudeOfFirstGridPointInDegrees")
+            lo2 = ec.codes_get(g, "longitudeOfLastGridPointInDegrees")
+            vals = ec.codes_get_values(g).reshape(Nj, Ni)
+            ec.codes_release(g)
+            if la1 < la2:                      # jadikan baris-0 = utara
+                vals = vals[::-1]; north, south = la2, la1
+            else:
+                north, south = la1, la2
+            if lo1 > lo2:                      # jadikan kolom-0 = barat
+                vals = vals[:, ::-1]; west, east = lo2, lo1
+            else:
+                west, east = lo1, lo2
+            fields[sn] = vals.astype("f4")
+            meta = {"nx": int(Ni), "ny": int(Nj), "west": float(west), "east": float(east),
+                    "south": float(south), "north": float(north)}
+    return fields, meta
+
+
+def _pick(fields, *names):
+    for n in names:
+        if n in fields:
+            return fields[n]
+    return None
+
+
+def sst_from_fields(fields):
+    """SST degC di laut (mask darat via land-sea mask). NaN di darat."""
+    t = _pick(fields, "t", "2t", "skt")
+    lsm = _pick(fields, "lsm", "land")
+    if t is None:
+        raise RuntimeError(f"TMP tak ada di GRIB: {list(fields)}")
+    sst = t - 273.15
+    if lsm is not None:
+        sst = np.where(lsm < 0.5, sst, np.nan)
+    return np.clip(sst, -2.0, 40.0)
+
+
+def wind_from_fields(fields):
+    u = _pick(fields, "10u", "u10", "u")
+    v = _pick(fields, "10v", "v10", "v")
+    return u, v
+
+
+# ================= Klimatologi =================
 _CLIM = None
-_CLIM_NAT = {}
+_CLIM_DOMAIN = {}
 
 
 def load_clim():
     global _CLIM
     if _CLIM is None:
         z = np.load(C.CLIM_PATH)
-        _CLIM = z["clim"]  # (12,180,360)
+        _CLIM = {"clim": z["clim"], "lat": z["lat"], "lon": z["lon"]}
     return _CLIM
 
 
-def clim_native(month, ny=720, nx=1440):
-    """Klimatologi bulan (1-12) di-upsample ke grid OISST asli (720x1440)."""
-    if month not in _CLIM_NAT:
-        m = load_clim()[month - 1]
-        mask = ~np.isnan(m)
-        fill = float(np.nanmean(m))
-        filled = np.where(mask, m, fill).astype("f4")
-        up = np.asarray(Image.fromarray(filled, "F").resize((nx, ny), Image.BICUBIC), dtype="f4")
-        _CLIM_NAT[month] = up
-    return _CLIM_NAT[month]
+def clim_domain(month, meta):
+    """Klimatologi SST bulan (1-12) di grid domain (north-up), di-upsample halus."""
+    key = (month, meta["ny"], meta["nx"])
+    if key in _CLIM_DOMAIN:
+        return _CLIM_DOMAIN[key]
+    c = load_clim()
+    m = c["clim"][month - 1]; lat = c["lat"]; lon = (c["lon"] % 360)
+    ri = np.where((lat >= C.LAT_MIN) & (lat <= C.LAT_MAX))[0]      # lat menurun -> north->south
+    ci = np.where((lon >= C.LON_MIN) & (lon <= C.LON_MAX))[0]      # lon menaik -> west->east
+    sub = m[np.ix_(ri, ci)]
+    mask = np.isfinite(sub)
+    fill = float(np.nanmean(sub))
+    filled = np.where(mask, sub, fill).astype("f4")
+    up = np.asarray(Image.fromarray(filled, "F").resize((meta["nx"], meta["ny"]), Image.BICUBIC), dtype="f4")
+    _CLIM_DOMAIN[key] = up
+    return up
 
 
-def read_sst_native(nc_bytes):
-    """OISST harian -> (sst 720x1440 dgn NaN, lat, lon) resolusi asli 0.25."""
-    ds = Dataset("inmem", mode="r", memory=nc_bytes)
-    sst = ds.variables["sst"][0, 0]
-    lat = np.array(ds.variables["lat"][:], dtype="f4")
-    lon = np.array(ds.variables["lon"][:], dtype="f4")
-    sstf = np.ma.filled(sst.astype("f4"), np.nan)
-    ds.close()
-    return sstf, lat, lon
+# ================= Colormap GRADASI MULUS (kontinu) =================
+# Palet SST termal (biru dingin -> merah panas). Anomali diverging MEMAKAI biru & merah
+# yang SAMA (ujung dingin #2166ac, ujung panas #a50026) supaya selaras SST/klim.
+SST_POS = [0.0, 0.14, 0.30, 0.45, 0.60, 0.72, 0.83, 0.93, 1.0]
+SST_RGB = [[8, 3, 107], [33, 102, 172], [67, 147, 195], [53, 200, 169], [127, 211, 79],
+           [232, 208, 32], [245, 159, 0], [232, 72, 28], [165, 0, 38]]
+# Anomali diverging: dingin BIRU -> 0 HITAM -> hangat MERAH (pusat gelap; darat = basemap terang)
+ANOM_POS = [0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0]
+ANOM_RGB = [[86, 170, 235], [40, 112, 192], [18, 42, 82], [8, 8, 12],
+            [74, 22, 28], [178, 46, 44], [242, 56, 44]]
+# Kecepatan arus 0..2 m/s (INFERNO): tenang = ungu-gelap -> deras magenta/oranye/kuning menyala
+SPEED_POS = [0.0, 0.14, 0.32, 0.5, 0.7, 0.86, 1.0]
+SPEED_RGB = [[16, 12, 48], [64, 18, 98], [132, 32, 107], [204, 58, 72],
+             [246, 128, 22], [250, 194, 42], [252, 255, 170]]
+SPEED_MAX = 2.0
 
 
-def anomaly(sst_native, month):
-    """Anomali basis 1991-2020 di resolusi asli."""
-    return sst_native - clim_native(month, sst_native.shape[0], sst_native.shape[1])
+def _colormap(norm01, pos, rgb):
+    rgb = np.asarray(rgb, "f4")
+    out = np.stack([np.interp(norm01, pos, rgb[:, k]) for k in range(3)], axis=-1)
+    return np.clip(out, 0, 255).astype("u1")
 
 
-# --- Indeks kotak ---
-def _box_mean(field, lat, lon, box):
+def _fill_nan_nearest(a, iters=10):
+    """Isi NaN (darat) dgn rata tetangga berulang -> tepi pantai mulus, tak ada fringe gelap."""
+    a = a.astype("f4").copy()
+    for _ in range(iters):
+        nan = ~np.isfinite(a)
+        if not nan.any():
+            break
+        acc = np.zeros_like(a); cnt = np.zeros_like(a)
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            sh = np.roll(a, (dy, dx), (0, 1)); m = np.isfinite(sh)
+            acc += np.where(m, np.nan_to_num(sh), 0.0); cnt += m
+        newv = np.where(cnt > 0, acc / np.maximum(cnt, 1), np.nan)
+        a = np.where(nan, newv, a)
+    return np.where(np.isfinite(a), a, np.nanmean(a[np.isfinite(a)]))
+
+
+def _merc_warp_rows(arr, north, south):
+    """Squish gambar equirectangular -> Web Mercator (arah vertikal) supaya PAS di peta Leaflet
+    (imageOverlay ditaruh linear di Mercator). Tanpa ini data geser di lintang vs basemap/tile."""
+    H = arr.shape[0]
+    yN = math.log(math.tan(math.pi / 4 + math.radians(north) / 2))
+    yS = math.log(math.tan(math.pi / 4 + math.radians(south) / 2))
+    yj = yN - np.arange(H) / (H - 1) * (yN - yS)
+    latj = np.degrees(2.0 * np.arctan(np.exp(yj)) - math.pi / 2)
+    src = (north - latj) / (north - south) * (H - 1)
+    s0 = np.clip(np.floor(src).astype(int), 0, H - 1)
+    s1 = np.clip(s0 + 1, 0, H - 1)
+    t = (src - s0).astype("f4")[:, None, None]
+    return (arr[s0].astype("f4") * (1 - t) + arr[s1].astype("f4") * t).astype(arr.dtype)
+
+
+def _render_field(field, path, vmin, vmax, pos, rgb, scale=3, alpha=235, bounds=None, dilate=4):
+    """Gradasi kontinu, halus dekat pantai (inpaint). Bila `bounds` diberikan -> alpha pakai
+    MASK GARIS PANTAI 10m: laut opaque tepat sampai pantai, DARAT transparan (basemap OSM tembus).
+    Tanpa bounds -> fallback lama (alpha dari mask data + dilate)."""
+    ny, nx = field.shape
+    mask = np.isfinite(field)
+    filled = _fill_nan_nearest(field)
+    W, H = nx * scale, ny * scale
+    up = np.asarray(Image.fromarray(filled.astype("f4"), "F").resize((W, H), Image.BICUBIC), dtype="f4")
+    norm = np.clip((up - vmin) / (vmax - vmin), 0.0, 1.0)
+    rgbimg = _colormap(norm, pos, rgb)
+    if bounds is not None:
+        land = land_render_mask(bounds[0], bounds[1], bounds[2], bounds[3], W, H)
+        a = np.where(land, 0, alpha).astype("u1")             # darat transparan (OSM tembus)
+    else:
+        mimg = Image.fromarray((mask * 255).astype("u1"), "L")
+        if dilate:
+            mimg = mimg.filter(ImageFilter.MaxFilter(dilate * 2 + 1))
+        mup = np.asarray(mimg.resize((W, H), Image.BILINEAR))
+        a = np.where(mup >= 128, alpha, 0).astype("u1")
+    rgba = np.dstack([rgbimg, a])
+    if bounds is not None:
+        rgba = _merc_warp_rows(rgba, bounds[2], bounds[3])   # equirect -> Web Mercator (sejajar basemap)
+    Image.fromarray(rgba, "RGBA").filter(ImageFilter.SMOOTH).save(path)
+
+
+def render_land_png(ocean_mask, path, scale=3, color=(27, 36, 48)):
+    """Siluet darat dari MASK GFS yg sama dgn SST -> tepi pantai plek sama data.
+    Darat = opaque (warna slate gelap), laut = transparan. Statik (darat tak berubah)."""
+    ny, nx = ocean_mask.shape
+    W, H = nx * scale, ny * scale
+    mup = np.asarray(Image.fromarray((ocean_mask.astype("u1") * 255), "L").resize((W, H), Image.BILINEAR))
+    a = np.where(mup < 128, 255, 0).astype("u1")  # darat = <128 (kebalikan alpha SST)
+    rgb = np.zeros((H, W, 3), "u1")
+    rgb[..., 0], rgb[..., 1], rgb[..., 2] = color
+    Image.fromarray(np.dstack([rgb, a]), "RGBA").filter(ImageFilter.SMOOTH).save(path)
+
+
+def render_sst_png(sst, path, bounds=None):
+    _render_field(sst, path, C.SST_MIN, C.SST_MAX, SST_POS, SST_RGB, bounds=bounds)
+
+
+def render_anom_png(anom, path, bounds=None):
+    _render_field(anom, path, -C.ANOM_ABS, C.ANOM_ABS, ANOM_POS, ANOM_RGB, bounds=bounds)
+
+
+def render_speed_png(speed, path, scale=3, bounds=None):
+    """Kontur kecepatan arus (magnitude m/s), 0..SPEED_MAX, darat transparan."""
+    _render_field(speed, path, 0.0, SPEED_MAX, SPEED_POS, SPEED_RGB, scale=scale, bounds=bounds)
+
+
+# ================= Indeks kotak =================
+def indices_from_anom(anom, meta):
+    lat = np.linspace(meta["north"], meta["south"], meta["ny"])
+    lon = np.linspace(meta["west"], meta["east"], meta["nx"])
+
+    def bm(box):
+        la0, la1, lo0, lo1 = box
+        li = (lat >= la0) & (lat <= la1); lj = (lon >= lo0) & (lon <= lo1)
+        return float(np.nanmean(anom[np.ix_(li, lj)]))
+
+    b = {k: bm(v) for k, v in C.BOXES.items()}
+    return {"nino12": round(b["nino12"], 2), "nino3": round(b["nino3"], 2),
+            "nino34": round(b["nino34"], 2), "nino4": round(b["nino4"], 2),
+            "dmi": round(b["iod_west"] - b["iod_east"], 2)}
+
+
+# ---- Indeks OISST (observasi) dgn klimatologi COBE yg SAMA spt GFS ----
+def _box_mean_grid(field, lat, lon, box):
     la0, la1, lo0, lo1 = box
     li = (lat >= la0) & (lat <= la1)
     lj = (lon >= lo0) & (lon <= lo1)
-    return float(np.nanmean(field[np.ix_(li, lj)]))
-
-
-def indices(anom, lat, lon):
-    b = {k: _box_mean(anom, lat, lon, v) for k, v in C.BOXES.items()}
-    return {
-        "nino12": round(b["nino12"], 2), "nino3": round(b["nino3"], 2),
-        "nino34": round(b["nino34"], 2), "nino4": round(b["nino4"], 2),
-        "dmi": round(b["iod_west"] - b["iod_east"], 2),
-    }
-
-
-# --- Colormap diverging (cocok legenda frontend) ---
-_STOPS = np.array([-1.0, -0.5, 0.0, 0.5, 1.0])
-_COLORS = np.array([
-    [33, 102, 172], [103, 169, 207], [247, 247, 247], [239, 138, 98], [178, 24, 43],
-], dtype="f4")
-
-
-def _colormap(norm):
-    r = np.interp(norm, _STOPS, _COLORS[:, 0])
-    g = np.interp(norm, _STOPS, _COLORS[:, 1])
-    b = np.interp(norm, _STOPS, _COLORS[:, 2])
-    return np.stack([r, g, b], axis=-1)
-
-
-def crop_domain(field, lat, lon):
-    """Potong ke domain. Kembalikan (sub, bounds=(latS,latN,lonW,lonE) tepi sel)."""
-    li = np.where((lat >= C.LAT_MIN) & (lat <= C.LAT_MAX))[0]
-    lj = np.where((lon >= C.LON_MIN) & (lon <= C.LON_MAX))[0]
     sub = field[np.ix_(li, lj)]
-    dlat = float(abs(lat[1] - lat[0])); dlon = float(abs(lon[1] - lon[0]))
-    bounds = (
-        float(lat[li[0]] - dlat / 2), float(lat[li[-1]] + dlat / 2),
-        float(lon[lj[0]] - dlon / 2), float(lon[lj[-1]] + dlon / 2),
-    )
-    return sub, bounds
+    return float(np.nanmean(sub)) if np.isfinite(sub).any() else float("nan")
 
 
-def render_anom_png(anom, lat, lon, path, scale=2):
-    """Render anomali 0.25 -> PNG domain-cropped, halus. Kembalikan bounds."""
-    sub, bounds = crop_domain(anom, lat, lon)
-    ny, nx = sub.shape
-    mask = ~np.isnan(sub)
-    filled = np.where(mask, sub, 0.0).astype("f4")
-    W, H = nx * scale, ny * scale
-    field = np.asarray(Image.fromarray(filled, "F").resize((W, H), Image.BICUBIC), dtype="f4")
-    mup = np.asarray(Image.fromarray((mask * 255).astype("u1"), "L").resize((W, H), Image.BILINEAR))
+_CLIM_BOX = {}
 
-    norm = np.clip(field / C.ANOM_ABS, -1.0, 1.0)
-    rgb = _colormap(norm).astype("u1")
-    alpha = np.where(mup >= 128, 235, 0).astype("u1")
-    rgba = np.dstack([rgb, alpha])[::-1]  # lintang naik -> baris atas = utara
-    Image.fromarray(rgba, "RGBA").filter(ImageFilter.SMOOTH).save(path)
-    return bounds
+
+def clim_box_means(month):
+    if month in _CLIM_BOX:
+        return _CLIM_BOX[month]
+    c = load_clim()
+    m = c["clim"][month - 1]
+    lat = np.asarray(c["lat"]); lon = np.asarray(c["lon"]) % 360
+    r = {k: _box_mean_grid(m, lat, lon, v) for k, v in C.BOXES.items()}
+    _CLIM_BOX[month] = r
+    return r
+
+
+def oisst_indices(nc_bytes, month):
+    """OISST harian (nc) -> indeks anomali kotak (Nino1+2/3/3.4/4, DMI) vs COBE clim."""
+    from netCDF4 import Dataset
+    ds = Dataset("inmem", mode="r", memory=nc_bytes)
+    ds.set_auto_maskandscale(True)
+    raw = ds.variables["sst"][0, 0]                    # MaskedArray (darat/es ter-mask)
+    sst = np.ma.filled(np.ma.masked_invalid(raw).astype("f4"), np.nan)  # mask -> NaN (bukan .data mentah)
+    lat = np.asarray(ds.variables["lat"][:]); lon = np.asarray(ds.variables["lon"][:]) % 360
+    ds.close()
+    cb = clim_box_means(month)
+    b = {k: _box_mean_grid(sst, lat, lon, v) - cb[k] for k, v in C.BOXES.items()}
+    return {"nino12": round(b["nino12"], 2), "nino3": round(b["nino3"], 2),
+            "nino34": round(b["nino34"], 2), "nino4": round(b["nino4"], 2),
+            "dmi": round(b["iod_west"] - b["iod_east"], 2)}
+
+
+# ================= Velocity JSON (leaflet-velocity) =================
+def velocity_json(u, v, meta, run, fstep, path):
+    nx, ny = meta["nx"], meta["ny"]
+    dx = round((meta["east"] - meta["west"]) / (nx - 1), 4)
+    dy = round((meta["north"] - meta["south"]) / (ny - 1), 4)
+    header = {
+        "lo1": meta["west"], "la1": meta["north"], "lo2": meta["east"], "la2": meta["south"],
+        "nx": nx, "ny": ny, "dx": dx, "dy": dy,
+        "parameterCategory": 2, "parameterUnit": "m.s-1",
+        "refTime": run.strftime("%Y-%m-%dT%H:00:00Z"), "forecastTime": fstep,
+    }
+    uf = np.nan_to_num(u).astype("f4").ravel(order="C").round(2).tolist()
+    vf = np.nan_to_num(v).astype("f4").ravel(order="C").round(2).tolist()
+    payload = [
+        {"header": {**header, "parameterNumber": 2, "parameterNumberName": "U-component_of_wind"}, "data": uf},
+        {"header": {**header, "parameterNumber": 3, "parameterNumberName": "V-component_of_wind"}, "data": vf},
+    ]
+    with open(path, "w") as f:
+        json.dump(payload, f, separators=(",", ":"))
+
+
+def _write_current_frame(u, v, lat, lon, ref_time, path):
+    ny, nx = u.shape
+    west, east, north, south = float(lon[0]), float(lon[-1]), float(lat[0]), float(lat[-1])
+    header = {
+        "lo1": west, "la1": north, "lo2": east, "la2": south, "nx": nx, "ny": ny,
+        "dx": round((east - west) / (nx - 1), 4), "dy": round((north - south) / (ny - 1), 4),
+        "parameterCategory": 2, "parameterUnit": "m.s-1", "refTime": ref_time, "forecastTime": 0,
+    }
+    uf = np.nan_to_num(u).ravel(order="C").round(2).tolist()
+    vf = np.nan_to_num(v).ravel(order="C").round(2).tolist()
+    payload = [
+        {"header": {**header, "parameterNumber": 2, "parameterNumberName": "U-component_of_current"}, "data": uf},
+        {"header": {**header, "parameterNumber": 3, "parameterNumberName": "V-component_of_current"}, "data": vf},
+    ]
+    with open(path, "w") as f:
+        json.dump(payload, f, separators=(",", ":"))
+
+
+def currents_frames(nc_path, out_dir, ref_time):
+    """Arus Copernicus (nc multi-waktu, lon 30..290) -> per TANGGAL:
+    kontur kecepatan NATIVE `curspd_DATE.png` + vektor (distride) `cur_DATE.json`.
+    Kembalikan (frames[{date,vec,spd}], native{u,v,lat,lon,dates}) utk point_data."""
+    import os
+    import xarray as xr
+    ds = xr.open_dataset(nc_path)
+    if "depth" in ds.dims:
+        ds = ds.isel(depth=0)
+    lat = np.asarray(ds["latitude"].values, dtype="f4")
+    lon = np.asarray(ds["longitude"].values, dtype="f4")
+    lat_desc = lat[0] > lat[-1]
+    latN = lat if lat_desc else lat[::-1]
+    cbounds = (float(lon[0]), float(lon[-1]), float(latN[0]), float(latN[-1]))
+    vs = C.CURRENTS["vec_stride"]
+    frames, us_all, vs_all, dates = [], [], [], []
+    for ti in range(ds.sizes["time"]):
+        date = str(ds["time"].values[ti])[:10].replace("-", "")
+        u = np.asarray(ds["uo"].isel(time=ti).values, dtype="f4")
+        v = np.asarray(ds["vo"].isel(time=ti).values, dtype="f4")
+        if not lat_desc:                                  # jadikan north-up
+            u = u[::-1]; v = v[::-1]
+        speed = np.sqrt(u * u + v * v)                    # NATIVE (tanpa downsample)
+        spd = f"curspd_{date}.png"
+        render_speed_png(speed, os.path.join(out_dir, spd), scale=1, bounds=cbounds)
+        uu = u[::vs, ::vs]; vv = v[::vs, ::vs]; la = latN[::vs]; lo = lon[::vs]  # partikel distride
+        vec = f"cur_{date}.json"
+        _write_current_frame(uu, vv, la, lo, ref_time, os.path.join(out_dir, vec))
+        frames.append({"date": date, "vec": vec, "spd": spd})
+        us_all.append(u); vs_all.append(v); dates.append(date)
+    ds.close()
+    native = {"u": np.stack(us_all), "v": np.stack(vs_all), "lat": latN, "lon": lon, "dates": dates}
+    return frames, native
+
+
+# ================= Point data (grid mentah utk klik-titik) =================
+def pack_grid(stack, scale):
+    """(nt,ny,nx) atau (ncomp,nt,ny,nx) float -> int16 gzip (NaN=-32768)."""
+    import gzip
+    a = np.where(np.isfinite(stack), np.round(np.asarray(stack) / scale), -32768)
+    a = np.clip(a, -32767, 32767).astype("<i2")
+    return gzip.compress(a.tobytes(), 6)
