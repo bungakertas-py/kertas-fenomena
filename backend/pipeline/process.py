@@ -418,6 +418,83 @@ def currents_frames(nc_path, out_dir, ref_time):
     return frames, native
 
 
+def currents_hourly(nc_path, out_dir, ref_time):
+    """Arus PERMUKAAN per-JAM dari PT1H (uo/vo di nc yg sama dgn SST) -> curspd_{tag}.webp +
+    cur_{tag}.json per jam. Kembalikan (frames[{valid_time,vec,spd}], native{u,v,lat,lon,dates}
+    HARIAN utk point_data)."""
+    import os
+    import xarray as xr
+    from datetime import datetime, timezone
+    from collections import OrderedDict
+    ds = xr.open_dataset(nc_path)
+    if "depth" in ds.dims:
+        ds = ds.isel(depth=0)
+    lat = np.asarray(ds["latitude"].values, dtype="f4")
+    lon = np.asarray(ds["longitude"].values, dtype="f4")
+    lat_desc = lat[0] > lat[-1]
+    latN = lat if lat_desc else lat[::-1]
+    cbounds = (float(lon[0]), float(lon[-1]), float(latN[0]), float(latN[-1]))
+    vs = C.CURRENTS["vec_stride"]
+    frames = []
+    day_u, day_v = OrderedDict(), OrderedDict()
+    for ti in range(ds.sizes["time"]):
+        vt = datetime.fromisoformat(str(ds["time"].values[ti])[:19]).replace(tzinfo=timezone.utc)
+        u = np.asarray(ds["uo"].isel(time=ti).values, dtype="f4")
+        v = np.asarray(ds["vo"].isel(time=ti).values, dtype="f4")
+        if not lat_desc:
+            u = u[::-1]; v = v[::-1]
+        tag = vt.strftime("%Y%m%d_%H")
+        spd = f"curspd_{tag}.webp"
+        render_speed_png(np.sqrt(u * u + v * v), os.path.join(out_dir, spd), scale=1, bounds=cbounds)
+        vec = f"cur_{tag}.json"
+        _write_current_frame(u[::vs, ::vs], v[::vs, ::vs], latN[::vs], lon[::vs], ref_time, os.path.join(out_dir, vec))
+        frames.append({"valid_time": vt.strftime("%Y-%m-%dT%H:00:00Z"), "vec": vec, "spd": spd})
+        d = vt.strftime("%Y%m%d")
+        day_u.setdefault(d, []).append(u); day_v.setdefault(d, []).append(v)
+    ds.close()
+    dates = list(day_u.keys())
+    u_daily = np.stack([np.nanmean(np.stack(day_u[d]), axis=0) for d in dates])
+    v_daily = np.stack([np.nanmean(np.stack(day_v[d]), axis=0) for d in dates])
+    native = {"u": u_daily, "v": v_daily, "lat": latN, "lon": lon, "dates": dates}
+    return frames, native
+
+
+def currents_depth(nc_path, out_dir, ref_time):
+    """Arus di KEDALAMAN (P1D cur, punya dim depth) -> per (kedalaman,tanggal)
+    curspd_d{k}_{DATE}.webp + cur_d{k}_{DATE}.json. Kembalikan info{depth_labels, depth_used,
+    frames{'1':[...],'2':[...],'3':[...]}}. Index 1.. (0 = permukaan per-jam terpisah)."""
+    import os
+    import xarray as xr
+    ds = xr.open_dataset(nc_path)
+    lat = np.asarray(ds["latitude"].values, dtype="f4")
+    lon = np.asarray(ds["longitude"].values, dtype="f4")
+    lat_desc = lat[0] > lat[-1]
+    latN = lat if lat_desc else lat[::-1]
+    cbounds = (float(lon[0]), float(lon[-1]), float(latN[0]), float(latN[-1]))
+    vs = C.CURRENTS["vec_stride"]
+    depvals = np.asarray(ds["depth"].values, dtype="f4")
+    targets = C.CURRENTS["depths"]
+    lev_idx = [int(np.argmin(np.abs(depvals - t))) for t in targets]
+    used = [round(float(depvals[i]), 1) for i in lev_idx]
+    dates = [str(ds["time"].values[ti])[:10].replace("-", "") for ti in range(ds.sizes["time"])]
+    frames = {}
+    for k, di in enumerate(lev_idx, start=1):
+        lst = []
+        for ti in range(ds.sizes["time"]):
+            u = np.asarray(ds["uo"].isel(time=ti, depth=di).values, dtype="f4")
+            v = np.asarray(ds["vo"].isel(time=ti, depth=di).values, dtype="f4")
+            if not lat_desc:
+                u = u[::-1]; v = v[::-1]
+            spd = f"curspd_d{k}_{dates[ti]}.webp"
+            render_speed_png(np.sqrt(u * u + v * v), os.path.join(out_dir, spd), scale=1, bounds=cbounds)
+            vec = f"cur_d{k}_{dates[ti]}.json"
+            _write_current_frame(u[::vs, ::vs], v[::vs, ::vs], latN[::vs], lon[::vs], ref_time, os.path.join(out_dir, vec))
+            lst.append({"date": dates[ti], "vec": vec, "spd": spd})
+        frames[str(k)] = lst
+    ds.close()
+    return {"depth_labels": [f"{t} m" for t in targets], "depth_used": used, "frames": frames}
+
+
 def salinity_frames(nc_path, out_dir):
     """Salinitas Copernicus (nc multi-waktu, var `so`) -> per TANGGAL `sal_DATE.png` NATIVE.
     Kembalikan (frames[{date,png}], native{sal,lat,lon,dates}) utk point_data."""

@@ -34,8 +34,8 @@ PAST_HOURS = 24          # (LEGACY GFS) retensi masa lampau
 SST_CMEMS = {
     "dataset": "cmems_mod_glo_phy_anfc_0.083deg_PT1H-m",
     "var": "thetao",
-    "retensi_hours": 24,     # jam ke belakang dari kini (analisis)
-    "forecast_hours": 96,    # jam ke depan (forecast) -> total ~5 hari, ~120 frame per-jam
+    "retensi_hours": 72,     # jam ke belakang (>= lag OISST ~2-3 hari, biar koreksi-bias dapat overlap)
+    "forecast_hours": 72,    # jam ke depan (forecast) -> total ~6 hari, ~145 frame per-jam
     "label": "CMEMS (model laut)",
 }
 
@@ -77,10 +77,11 @@ OISST_DAYS = 4   # ~3 hari ke belakang (observasi), sisanya di plot = GFS kini +
 # GFS = atmosfer (tak punya arus). Ini model laut CMEMS: arus harian analisis+forecast,
 # horizon disamakan SST (per tanggal frame). Butuh akun gratis (login copernicusmarine).
 CURRENTS = {
-    "dataset": "cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m",
+    "dataset": "cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m",   # HARIAN, punya dimensi depth
     "vars": ["uo", "vo"],
     "vec_stride": 3,   # partikel velocity: ~0.25 deg (demi performa animasi leaflet-velocity)
-    "label": "Copernicus (CMEMS)",
+    "depths": [50, 100, 200],   # lapisan bawah (harian); PERMUKAAN per-jam dari PT1H
+    "label": "CMEMS (model laut)",
 }
 # --- Salinitas permukaan FORECAST (Copernicus Marine, produk PHY yg sama, variabel `so`) ---
 # Login copernicusmarine yg sama dgn arus. Permukaan (0..1 m), harian analisis+forecast.

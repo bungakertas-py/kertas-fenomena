@@ -143,23 +143,32 @@ def main():
 
     # Darat = poligon vektor 10m statik (frontend/data/land_10m.geojson, dibuat prep_land.py).
 
-    # ---- Arus laut FORECAST (Copernicus, per tanggal SST) ----
+    # ---- Arus laut: PERMUKAAN per-jam (dari nc SST hourly yg sudah punya uo/vo) + KEDALAMAN harian ----
+    ref_iso = run.strftime("%Y-%m-%dT%H:00:00Z")
+    cdates = [f["date"] for f in anom_frames]
+    s_iso = f"{cdates[0][:4]}-{cdates[0][4:6]}-{cdates[0][6:8]}T00:00:00"
+    e_iso = f"{cdates[-1][:4]}-{cdates[-1][4:6]}-{cdates[-1][6:8]}T00:00:00"
     currents = None
     cur_native = None
     try:
-        cdates = [f["date"] for f in anom_frames]
-        s_iso = f"{cdates[0][:4]}-{cdates[0][4:6]}-{cdates[0][6:8]}T00:00:00"
-        e_iso = f"{cdates[-1][:4]}-{cdates[-1][4:6]}-{cdates[-1][6:8]}T00:00:00"
-        cnc = os.path.join(tempfile.gettempdir(), "kf_currents.nc")
-        download.download_currents(s_iso, e_iso, cnc)
-        cf, cur_native = process.currents_frames(cnc, C.OUT_DIR, run.strftime("%Y-%m-%dT%H:00:00Z"))
+        surf_frames, cur_native = process.currents_hourly(ssth_nc, C.OUT_DIR, ref_iso)   # permukaan per-jam
         clat, clon = cur_native["lat"], cur_native["lon"]
         cb = _edge_bounds(float(clon[0]), float(clon[-1]), float(clat[0]), float(clat[-1]), len(clon), len(clat))
-        currents = {"label": C.CURRENTS["label"], "cadence": "daily", "frames": cf,
+        currents = {"label": C.CURRENTS["label"], "cadence": "1h", "frames": surf_frames,
+                    "depth_labels": ["Permukaan"], "depth_frames": {},
                     "bounds": {"lonW": cb[0], "lonE": cb[1], "latN": cb[2], "latS": cb[3]}}
-        print(f"  arus laut Copernicus: {len(cf)} tanggal ({','.join(f['date'] for f in cf)})")
+        print(f"  arus permukaan per-jam: {len(surf_frames)} frame")
+        try:   # lapisan bawah HARIAN (P1D cur di 50/100/200 m)
+            cnc = os.path.join(tempfile.gettempdir(), "kf_currents.nc")
+            download.download_currents(s_iso, e_iso, cnc)
+            cd = process.currents_depth(cnc, C.OUT_DIR, ref_iso)
+            currents["depth_labels"] = ["Permukaan"] + cd["depth_labels"]
+            currents["depth_frames"] = cd["frames"]
+            print(f"  arus kedalaman: {len(cd['depth_labels'])} lapisan (level {cd['depth_used']} m)")
+        except Exception as e:
+            print("PERINGATAN arus kedalaman gagal:", e)
     except Exception as e:
-        print("PERINGATAN arus laut gagal:", e)
+        print("PERINGATAN arus permukaan gagal:", e)
 
     # ---- Salinitas permukaan FORECAST (Copernicus, per tanggal SST) ----
     salinity = None

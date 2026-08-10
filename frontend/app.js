@@ -216,14 +216,19 @@ function nowIndex() {
   }
   return 0;
 }
+function frameT(f) {   // timestamp frame (per-jam pakai valid_time, harian pakai date)
+  if (f && f.valid_time) return Date.parse(f.valid_time);
+  if (f && f.date) return Date.UTC(+f.date.slice(0, 4), +f.date.slice(4, 6) - 1, +f.date.slice(6, 8), 12);
+  return 0;
+}
 function curVecFor(f) {
   const c = state.currents; if (!c || !c.frames || !c.frames.length) return null;
-  if (f && f.vec) return f.vec;                       // frame INI memang frame arus (layer Arus Laut)
-  const byDate = c._byDate || (c._byDate = Object.fromEntries(c.frames.map((fr) => [fr.date, fr.vec])));
-  const dates = c.frames.map((fr) => fr.date).sort();
-  const d = frameDateOf(f);
-  if (!d) return byDate[dates[0]];
-  return byDate[d] || (d < dates[0] ? byDate[dates[0]] : byDate[dates[dates.length - 1]]);
+  if (f && f.vec) return f.vec;                       // frame INI memang frame arus (layer Arus)
+  // velocity "selalu-nyala" di layer lain: ambil arus PERMUKAAN terdekat waktunya (kini per-jam)
+  const arr = c._tidx || (c._tidx = c.frames.map((fr) => ({ t: frameT(fr), vec: fr.vec })));
+  const ft = frameT(f); let best = arr[0], bd = Infinity;
+  for (const a of arr) { const dd = Math.abs(a.t - ft); if (dd < bd) { bd = dd; best = a; } }
+  return best.vec;
 }
 async function updateCurrents() {
   const cf = curVecFor(frames[frameIdx]);
@@ -305,22 +310,35 @@ function showFrame(i, opts) {
   if (activeLayer === "index") renderIndexDetail();
 }
 
-/* ---- Layer "Suhu Laut" gabungan: kedalaman 0 = SST per-jam (permukaan), >0 = subt harian ---- */
+/* ---- Kedalaman terpadu: kedalaman 0 = permukaan (per-jam), >0 = lapisan bawah (harian).
+   Suhu Laut: 0=SST, >0=subt. Arus: 0=arus permukaan, >0=arus kedalaman. ---- */
 function tempFramesForDepth(d) {
-  if (d === 0) return state.layers.sst.frames;                              // permukaan = SST per-jam
+  if (d === 0) return state.layers.sst.frames;
   return (state.layers.subt && state.layers.subt.frames[String(d - 1)]) || state.layers.sst.frames;
 }
+function curFramesForDepth(d) {
+  if (d === 0) return state.currents.frames;
+  return (state.currents.depth_frames && state.currents.depth_frames[String(d)]) || state.currents.frames;
+}
+function framesForDepth(d) { return activeLayer === "current" ? curFramesForDepth(d) : tempFramesForDepth(d); }
+function depthLabels() {
+  if (activeLayer === "current") return (state.currents && state.currents.depth_labels) || ["Permukaan"];
+  if (activeLayer === "sst") return ["Permukaan / SST", ...((state.layers.subt && state.layers.subt.depth_labels) || [])];
+  return [];
+}
+function hasDepth() { return activeLayer === "sst" || activeLayer === "current"; }
 
-/* ---- Ganti layer (Suhu Laut / Anomali / Klimatologi / ...) ---- */
+/* ---- Ganti layer (Suhu Laut / Arus / Anomali / ...) ---- */
 function setLayer(key) {
   if (key === "current" && (!state.currents || !state.currents.frames || !state.currents.frames.length)) { toast("Data arus belum tersedia"); return; }
   if (key === "sal" && !(state.layers.sal && state.layers.sal.frames && state.layers.sal.frames.length)) { toast("Data salinitas belum tersedia"); return; }
   activeLayer = key;
   applyBasemap();   // gelap khusus anom, terang selainnya
-  frames = key === "current" ? state.currents.frames
-    : key === "sst" ? tempFramesForDepth(selectedDepth)   // Suhu Laut per kedalaman
+  if (hasDepth() && selectedDepth >= depthLabels().length) selectedDepth = 0;   // clamp antar-layer
+  frames = key === "current" ? curFramesForDepth(selectedDepth)
+    : key === "sst" ? tempFramesForDepth(selectedDepth)
     : state.layers[FRAME_SRC[key]].frames;
-  updateDepthBar();   // pemilih kedalaman hanya di Suhu Laut
+  updateDepthBar();   // pemilih kedalaman di Suhu Laut & Arus
   document.querySelectorAll(".layer-btn").forEach((b) => b.classList.toggle("active", b.dataset.layer === key));
   document.querySelectorAll(".index-opt").forEach((o) => o.classList.remove("active"));   // keluar mode indeks
   renderLegend(key); buildTicks();
@@ -332,13 +350,12 @@ function setLayer(key) {
   showFrame(nowIndex(), { layerSwitch: true });
 }
 
-/* ---- Pemilih kedalaman (Suhu Laut): Permukaan/SST + lapisan bawah ---- */
+/* ---- Pemilih kedalaman (Suhu Laut & Arus): Permukaan + lapisan bawah ---- */
 function updateDepthBar() {
-  const on = activeLayer === "sst";
+  const on = hasDepth();
   $("depth-bar").hidden = !on;
   if (!on) return;
-  const deep = (state.layers.subt && state.layers.subt.depth_labels) || [];
-  const labels = ["Permukaan / SST", ...deep];
+  const labels = depthLabels();
   $("depth-pills").innerHTML = labels.map((lb, i) =>
     `<button class="depth-pill${i === selectedDepth ? " active" : ""}" data-depth="${i}">${lb}</button>`).join("");
   $("depth-pills").querySelectorAll(".depth-pill").forEach((b) =>
@@ -348,7 +365,7 @@ function setDepth(i) {
   if (i === selectedDepth) return;
   selectedDepth = i;
   if (pointActive && i > 0) closePoint();   // klik-titik hanya untuk permukaan (pd kedalaman tak disimpan)
-  frames = tempFramesForDepth(i);
+  frames = framesForDepth(i);
   $("time-slider").max = String(Math.max(0, frames.length - 1));
   updateDepthBar(); buildTicks();
   showFrame(nowIndex(), { layerSwitch: true });   // cadence bisa beda (per-jam <-> harian) -> resolve "kini"
@@ -778,7 +795,7 @@ function setPointMarker(lat, lon) {
 }
 async function openPoint(lat, lon) {
   if (activeLayer === "index") return;
-  if (activeLayer === "sst" && selectedDepth > 0) { toast("Klik-titik hanya untuk permukaan"); return; }   // pd kedalaman tak disimpan
+  if ((activeLayer === "sst" || activeLayer === "current") && selectedDepth > 0) { toast("Klik-titik hanya untuk permukaan"); return; }   // pd kedalaman tak disimpan
   const param = POINT_PARAM[activeLayer];
   if (!param) { toast("Klik titik untuk SST, Anomali SST, atau Arus Laut"); return; }
   pointActive = true; pointLat = lat; pointLon = lon;

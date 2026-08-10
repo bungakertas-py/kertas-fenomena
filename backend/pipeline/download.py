@@ -36,8 +36,8 @@ def download_bytes(url, timeout=(30, 180)):
 
 
 def download_currents(start_iso, end_iso, dest_path):
-    """Arus forecast Copernicus (uo/vo permukaan) untuk rentang tanggal SST -> file netCDF.
-    Domain lon 30..290 (0-360, diterima toolbox), permukaan saja (depth 0..1 m)."""
+    """Arus forecast Copernicus (uo/vo) HARIAN untuk rentang tanggal SST -> file netCDF.
+    Domain lon 30..290, kedalaman 0..250 m (utk lapisan 50/100/200; permukaan per-jam terpisah)."""
     import os
     if os.environ.get("KF_REUSE_CUR") and os.path.exists(dest_path) and os.path.getsize(dest_path) > 1_000_000:
         return dest_path   # dev: pakai nc cache (hemat unduh saat iterasi render)
@@ -47,7 +47,7 @@ def download_currents(start_iso, end_iso, dest_path):
         dataset_id=C.CURRENTS["dataset"], variables=C.CURRENTS["vars"],
         minimum_longitude=C.LON_MIN, maximum_longitude=C.LON_MAX,
         minimum_latitude=C.LAT_MIN, maximum_latitude=C.LAT_MAX,
-        minimum_depth=0, maximum_depth=1,
+        minimum_depth=0, maximum_depth=250,
         start_datetime=start_iso, end_datetime=end_iso,
         output_filename=fn, output_directory=d, overwrite=True,
     )
@@ -74,7 +74,7 @@ def download_salinity(start_iso, end_iso, dest_path):
 
 
 def download_sst_hourly(start_iso, end_iso, dest_path):
-    """SST model laut per-jam (thetao permukaan) dari CMEMS PT1H-m -> netCDF.
+    """Permukaan per-jam CMEMS PT1H-m: SST (thetao) + arus (uo,vo) SEKALIGUS (satu unduhan).
     Rentang waktu jam (retensi..forecast). Permukaan saja (depth 0..1 m)."""
     import os
     if os.environ.get("KF_REUSE_SSTH") and os.path.exists(dest_path) and os.path.getsize(dest_path) > 1_000_000:
@@ -82,7 +82,7 @@ def download_sst_hourly(start_iso, end_iso, dest_path):
     import copernicusmarine as cm
     d = os.path.dirname(dest_path); fn = os.path.basename(dest_path)
     cm.subset(
-        dataset_id=C.SST_CMEMS["dataset"], variables=[C.SST_CMEMS["var"]],
+        dataset_id=C.SST_CMEMS["dataset"], variables=[C.SST_CMEMS["var"], "uo", "vo"],
         minimum_longitude=C.LON_MIN, maximum_longitude=C.LON_MAX,
         minimum_latitude=C.LAT_MIN, maximum_latitude=C.LAT_MAX,
         minimum_depth=0, maximum_depth=1,
