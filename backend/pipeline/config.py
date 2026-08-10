@@ -24,9 +24,20 @@ GFS = {
     "run_hours": [0, 6, 12, 18],
     "availability_lag_hours": 5,
 }
-FORECAST_HOURS = 72      # SST + angin per 3 jam sampai +72 jam
+FORECAST_HOURS = 72      # (LEGACY GFS) SST + angin per 3 jam sampai +72 jam
 STEP_HOURS = 3
-PAST_HOURS = 24          # retensi masa lampau (mirip kertas-cuaca): -24 jam dari analisis run GFS sebelumnya
+PAST_HOURS = 24          # (LEGACY GFS) retensi masa lampau
+
+# --- SST dari MODEL LAUT CMEMS per-jam (ganti GFS) ---
+# Dataset per-jam permukaan (PT1H-m): thetao (SST), so, uo, vo, zos. thetao punya dim depth -> ambil terdangkal.
+# Raster per-JAM (jendela pendek); anomali/indeks/point-data tetap HARIAN (rata-rata harian).
+SST_CMEMS = {
+    "dataset": "cmems_mod_glo_phy_anfc_0.083deg_PT1H-m",
+    "var": "thetao",
+    "retensi_hours": 24,     # jam ke belakang dari kini (analisis)
+    "forecast_hours": 96,    # jam ke depan (forecast) -> total ~5 hari, ~120 frame per-jam
+    "label": "CMEMS (model laut)",
+}
 
 # --- Skala warna ---
 ANOM_ABS = 3.0                       # anomali -3..+3 degC

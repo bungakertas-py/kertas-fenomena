@@ -266,12 +266,12 @@ def render_land_png(ocean_mask, path, scale=3, color=(27, 36, 48)):
     Image.fromarray(np.dstack([rgb, a]), "RGBA").filter(ImageFilter.SMOOTH).save(path)
 
 
-def render_sst_png(sst, path, bounds=None):
-    _render_field(sst, path, C.SST_MIN, C.SST_MAX, SST_POS, SST_RGB, bounds=bounds)
+def render_sst_png(sst, path, scale=3, bounds=None):
+    _render_field(sst, path, C.SST_MIN, C.SST_MAX, SST_POS, SST_RGB, scale=scale, bounds=bounds)
 
 
-def render_anom_png(anom, path, bounds=None):
-    _render_field(anom, path, -C.ANOM_ABS, C.ANOM_ABS, ANOM_POS, ANOM_RGB, bounds=bounds)
+def render_anom_png(anom, path, scale=3, bounds=None):
+    _render_field(anom, path, -C.ANOM_ABS, C.ANOM_ABS, ANOM_POS, ANOM_RGB, scale=scale, bounds=bounds)
 
 
 def render_speed_png(speed, path, scale=3, bounds=None):
@@ -444,6 +444,40 @@ def salinity_frames(nc_path, out_dir):
     ds.close()
     native = {"sal": np.stack(sal_all), "lat": latN, "lon": lon, "dates": dates}
     return frames, native
+
+
+def sst_hourly_steps(nc_path, out_dir):
+    """SST MODEL LAUT per-jam (thetao permukaan CMEMS PT1H-m) -> render per JAM `sst_{tag}.webp`
+    di grid CMEMS 1/12 native. Kembalikan (per_step[{vt,date,month,sst,png}], meta, sea_mask).
+    Ganti sumber SST GFS; downstream (anom harian, indeks, klim, pd) pakai meta ini apa adanya."""
+    import os
+    import xarray as xr
+    from datetime import datetime, timezone
+    ds = xr.open_dataset(nc_path)
+    if "depth" in ds.dims:
+        ds = ds.isel(depth=0)                          # permukaan (level terdangkal ~0.5 m)
+    var = C.SST_CMEMS["var"]
+    lat = np.asarray(ds["latitude"].values, dtype="f4")
+    lon = np.asarray(ds["longitude"].values, dtype="f4")
+    lat_desc = lat[0] > lat[-1]
+    latN = lat if lat_desc else lat[::-1]
+    W_, E_, N_, S_ = float(lon[0]), float(lon[-1]), float(latN[0]), float(latN[-1])
+    meta = {"nx": int(len(lon)), "ny": int(len(latN)), "west": W_, "east": E_, "south": S_, "north": N_}
+    bounds = (W_, E_, N_, S_)
+    per_step, sea_mask = [], None
+    for ti in range(ds.sizes["time"]):
+        vt = datetime.fromisoformat(str(ds["time"].values[ti])[:19]).replace(tzinfo=timezone.utc)
+        sst = np.asarray(ds[var].isel(time=ti).values, dtype="f4")     # darat = NaN (masked)
+        if not lat_desc:
+            sst = sst[::-1]                                            # north-up
+        if sea_mask is None:
+            sea_mask = np.isfinite(sst)
+        tag = vt.strftime("%Y%m%d_%H")
+        png = f"sst_{tag}.webp"
+        render_sst_png(sst, os.path.join(out_dir, png), scale=1, bounds=bounds)
+        per_step.append({"vt": vt, "date": vt.strftime("%Y%m%d"), "month": vt.month, "sst": sst, "png": png})
+    ds.close()
+    return per_step, meta, sea_mask
 
 
 def subtemp_frames(nc_path, out_dir):

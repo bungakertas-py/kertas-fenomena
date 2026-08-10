@@ -557,7 +557,7 @@ function renderIndexPlot() {
   }
   // Plot 1: harian OISST (observasi) + GFS (prakiraan)
   const lgDaily = `<span class="ix-lg"><i style="background:${OBS_COLOR}"></i>OISST observasi</span>`
-    + `<span class="ix-lg"><i class="dash" style="border-top-color:${GFS_COLOR}"></i>GFS prakiraan</span>`
+    + `<span class="ix-lg"><i class="dash" style="border-top-color:${GFS_COLOR}"></i>CMEMS prakiraan</span>`
     + `<span class="ix-lg-note">Klimatologi ${obsClim}</span>`;
   const dailyTitle = season ? `Indeks ${INDEX_LABEL[k]} · harian` : `Indeks ${INDEX_LABEL[k]}`;
   let html = plotBlock(dailyTitle, indexPlotSVG(k), lgDaily);
@@ -674,10 +674,30 @@ function ptXlabel(f) {
   if (f.month) return MONTHS[f.month - 1];
   return "";
 }
+// Sumbu waktu deret titik diambil dari pd SENDIRI (harian/bulanan), bukan dari frames tampilan
+// (SST kini per-jam tapi pd-nya harian) -> label & indeks-kini dipetakan lewat tanggal.
+function pdTimeArr(pd) { return pd.dates || pd.months || pd.times || []; }
+function pdLabel(pd, i) {
+  if (pd.dates) { const d = pd.dates[i]; return `${+d.slice(6, 8)}/${+d.slice(4, 6)}`; }
+  if (pd.months) return MONTHS[pd.months[i] - 1];
+  if (pd.times) { const w = toWIB(pd.times[i]); return `${w.getUTCDate()}/${w.getUTCMonth() + 1}`; }
+  return "";
+}
+function pdCurIdx(pd, f) {
+  if (pd.dates) {
+    const d = frameDateOf(f), j = pd.dates.indexOf(d);
+    if (j >= 0) return j;
+    let best = pd.dates.length - 1, bd = Infinity;
+    pd.dates.forEach((x, k) => { const dd = Math.abs(+x - +d); if (dd < bd) { bd = dd; best = k; } });
+    return best;
+  }
+  if (pd.months) { const j = pd.months.indexOf(f.month); return j < 0 ? 0 : j; }
+  return Math.min(frameIdx, pdTimeArr(pd).length - 1);
+}
 function pointSeries(param) {
   const pd = state.point_data && state.point_data[param.pd], arr = pdArr[param.pd];
   if (!pd || !arr) return null;
-  const n = Math.min(frames.length, (pd.times || pd.dates || pd.months || []).length);
+  const n = pdTimeArr(pd).length;
   const vals = [];
   for (let i = 0; i < n; i++) {
     if (param.vector) {
@@ -688,7 +708,7 @@ function pointSeries(param) {
   return { pd, vals, n };
 }
 // Plot time-series di titik: sumbu X waktu (ikut slider), sumbu Y nilai + satuan
-function pointPlotSVG(nums, param, curIdx) {
+function pointPlotSVG(nums, param, curIdx, pd) {
   const n = nums.length, good = nums.filter((v) => v != null && !isNaN(v));
   if (good.length < 2) return `<div class="kf-pop-empty">Tak ada deret di titik ini.</div>`;
   const W = 264, H = 120, padL = 48, padR = 8, padT = 12, padB = 20;
@@ -713,11 +733,11 @@ function pointPlotSVG(nums, param, curIdx) {
   const ulab = `<text x="11" y="${uy.toFixed(1)}" text-anchor="middle" transform="rotate(-90 11 ${uy.toFixed(1)})" class="kf-axl kf-axunit">${param.unit}</text>`;
   // satu tick per tanggal (frame pertama tiap label) -> konsisten, tak ada tanggal yang lompat
   const seenD = new Set(); let dayIdx = [];
-  for (let i = 0; i < n; i++) { const lab = ptXlabel(frames[i]); if (lab && !seenD.has(lab)) { seenD.add(lab); dayIdx.push(i); } }
+  for (let i = 0; i < n; i++) { const lab = pdLabel(pd, i); if (lab && !seenD.has(lab)) { seenD.add(lab); dayIdx.push(i); } }
   if (dayIdx.length > 6) { const st = Math.ceil(dayIdx.length / 6); dayIdx = dayIdx.filter((_, j) => j % st === 0 || j === dayIdx.length - 1); }
   const xaxis = dayIdx.map((i) => {
     const anch = i === 0 ? "start" : i >= n - 1 ? "end" : "middle";
-    return `<line x1="${X(i).toFixed(1)}" y1="${yBot}" x2="${X(i).toFixed(1)}" y2="${(yBot + 3).toFixed(1)}" stroke="${AX}" stroke-width="1"/><text x="${X(i).toFixed(1)}" y="${H - 4}" text-anchor="${anch}" class="kf-axl">${ptXlabel(frames[i])}</text>`;
+    return `<line x1="${X(i).toFixed(1)}" y1="${yBot}" x2="${X(i).toFixed(1)}" y2="${(yBot + 3).toFixed(1)}" stroke="${AX}" stroke-width="1"/><text x="${X(i).toFixed(1)}" y="${H - 4}" text-anchor="${anch}" class="kf-axl">${pdLabel(pd, i)}</text>`;
   }).join("");
   return `<svg class="kf-pop-plot" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${axisLines}${zero}${line}${nowm}${yaxis}${ulab}${xaxis}</svg>`;
 }
@@ -728,7 +748,7 @@ function pointPopupHTML() {
   if (!param) return `<div class="kf-pop-ttl">Titik</div><div class="kf-pop-empty">Pilih SST, Anomali, atau Arus.</div>`;
   const s = pointSeries(param);
   if (!s) return `<div class="kf-pop-ttl">${param.label}</div><div class="kf-pop-coord">${coord}</div><div class="kf-pop-empty">Data titik belum siap.</div>`;
-  const idx = Math.min(frameIdx, s.n - 1), cur = s.vals[idx];
+  const idx = pdCurIdx(s.pd, frames[frameIdx]), cur = s.vals[idx];   // petakan frame tampilan -> indeks pd
   let big, nums, dirLine = "";
   if (param.vector) {
     nums = s.vals.map((o) => o ? o.spd : null);
@@ -742,7 +762,7 @@ function pointPopupHTML() {
   return `<div class="kf-pop-ttl">${param.label}</div>
     <div class="kf-pop-coord">${coord}</div>
     <div class="kf-pop-big"><span class="${bigCls}">${big}</span> <span class="kf-pop-unit">${param.unit}</span></div>
-    ${dirLine}${pointPlotSVG(nums, param, idx)}`;
+    ${dirLine}${pointPlotSVG(nums, param, idx, s.pd)}`;
 }
 function setPointMarker(lat, lon) {
   const ll = [lat, nlng(lon)];

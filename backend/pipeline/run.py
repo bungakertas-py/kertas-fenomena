@@ -34,15 +34,15 @@ def _edge_bounds(west, east, north, south, nx, ny):
     return (west, east, north, south)
 
 
-def _write_point_data(per_step, anom_fields, anom_frames, meta, cur_native, sal_native=None):
-    """Grid mentah (int16 gzip) utk klik-titik: SST(3-jam), Anomali(harian) di grid GFS;
-    arus u/v(harian) & salinitas(harian) di grid Copernicus native."""
+def _write_point_data(sst_day_fields, anom_fields, anom_frames, meta, cur_native, sal_native=None):
+    """Grid mentah (int16 gzip) utk klik-titik, semua HARIAN di grid CMEMS: SST(rata harian),
+    Anomali(harian); arus u/v(harian) & salinitas(harian) di grid Copernicus native."""
     pd = {}
     try:
         with open(os.path.join(C.OUT_DIR, "pd_sst.bin.gz"), "wb") as f:
-            f.write(process.pack_grid(np.stack([s["sst"] for s in per_step]), 0.01))
-        pd["sst"] = {"file": "pd_sst.bin.gz", "scale": 0.01, "nt": len(per_step), **_grid_meta(meta),
-                     "times": [s["vt"].strftime("%Y-%m-%dT%H:00:00Z") for s in per_step]}
+            f.write(process.pack_grid(np.stack(sst_day_fields), 0.01))
+        pd["sst"] = {"file": "pd_sst.bin.gz", "scale": 0.01, "nt": len(sst_day_fields), **_grid_meta(meta),
+                     "dates": [fr["date"] for fr in anom_frames]}
         with open(os.path.join(C.OUT_DIR, "pd_anom.bin.gz"), "wb") as f:
             f.write(process.pack_grid(np.stack(anom_fields), 0.01))
         pd["anom"] = {"file": "pd_anom.bin.gz", "scale": 0.01, "nt": len(anom_fields), **_grid_meta(meta),
@@ -77,51 +77,16 @@ def _write_point_data(per_step, anom_fields, anom_frames, meta, cur_native, sal_
 
 def main():
     os.makedirs(C.OUT_DIR, exist_ok=True)
-    run = download.find_run_with_data(download.latest_run())
-    print(f"Run GFS: {run:%Y-%m-%d %HZ}")
-
-    present = [(run, f, False) for f in range(0, C.FORECAST_HOURS + 1, C.STEP_HOURS)]
-    lim = os.environ.get("KF_MAX_STEPS")
-    if lim:
-        present = present[: int(lim)]
-    # Retensi masa lampau (mirip kertas-cuaca): analisis run GFS sebelumnya (tiap 6 jam, ambil
-    # f000+f003) mengisi valid_time -PAST_HOURS..-STEP secara 3-jaman. Best-effort: dilewati bila
-    # run lama tak tersedia di NOMADS.
-    past = []
-    if not os.environ.get("KF_NO_PAST"):
-        for dh in range(C.PAST_HOURS, 0, -6):
-            r = run - timedelta(hours=dh)
-            past += [(r, 0, True), (r, C.STEP_HOURS, True)]
-    specs = past + present   # kronologis: lampau -> kini -> forecast
-
-    meta = None
-    sea_mask = None
-    per_step = []           # {vt, date, month, sst, png}
-    tmp = os.path.join(tempfile.gettempdir(), "kf_gfs_step.grib2")
-
-    for r, fstep, is_past in specs:
-        vt = r + timedelta(hours=fstep)
-        try:
-            download.download_step(r, fstep, tmp)
-        except Exception as e:
-            if is_past:
-                print(f"  (lewati lampau {vt:%Y-%m-%d %HZ}: {e})")
-                continue
-            raise
-        fields, m = process.read_grib(tmp)
-        meta = m
-        sst = process.sst_from_fields(fields)
-        if sea_mask is None:
-            lsm = process._pick(fields, "lsm", "land")
-            sea_mask = (lsm < 0.5) if lsm is not None else np.isfinite(sst)
-        # render SST per langkah (wind velocity dibuang; arus laut dari Copernicus)
-        tag = vt.strftime("%Y%m%d_%H")
-        png = f"sst_{tag}.webp"
-        process.render_sst_png(sst, os.path.join(C.OUT_DIR, png),
-                               bounds=_edge_bounds(m["west"], m["east"], m["north"], m["south"], m["nx"], m["ny"]))
-        per_step.append({"vt": vt, "date": vt.strftime("%Y%m%d"), "month": vt.month,
-                         "sst": sst, "png": png})
-        print(f"  {'past ' if is_past else 'fcst '}{vt:%Y-%m-%d %HZ}  SST ekuator ~{np.nanmean(sst[sst.shape[0]//2]):.1f}C")
+    # SST dari MODEL LAUT CMEMS per-jam (ganti GFS). Jendela: retensi..forecast jam sekitar "kini".
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    run = now                                    # acuan "kini" untuk downstream (now_iso/today/doc.run)
+    start = now - timedelta(hours=C.SST_CMEMS["retensi_hours"])
+    end = now + timedelta(hours=C.SST_CMEMS["forecast_hours"])
+    print(f"SST CMEMS per-jam: {start:%Y-%m-%d %HZ} .. {end:%Y-%m-%d %HZ}")
+    ssth_nc = os.path.join(tempfile.gettempdir(), "kf_sst_hourly.nc")
+    download.download_sst_hourly(start.strftime("%Y-%m-%dT%H:00:00"), end.strftime("%Y-%m-%dT%H:00:00"), ssth_nc)
+    per_step, meta, sea_mask = process.sst_hourly_steps(ssth_nc, C.OUT_DIR)
+    print(f"  {len(per_step)} frame SST per-jam di grid CMEMS {meta['nx']}x{meta['ny']}")
 
     sst_frames = [{"valid_time": s["vt"].strftime("%Y-%m-%dT%H:00:00Z"), "png": s["png"]}
                   for s in per_step]
@@ -132,15 +97,17 @@ def main():
         days.setdefault(s["date"], []).append(s)
     anom_frames = []
     anom_fields = []
+    sst_day_fields = []       # rata-rata SST harian -> point_data SST HARIAN (bukan per-jam, biar ringan)
     for date, group in days.items():
         month = group[0]["month"]
         sst_day = np.nanmean(np.stack([g["sst"] for g in group]), axis=0)
         clim = process.clim_domain(month, meta)
         anom = sst_day - clim
         anom_fields.append(anom)
+        sst_day_fields.append(sst_day)
         idx = process.indices_from_anom(anom, meta)
         apng = f"anom_{date}.webp"
-        process.render_anom_png(anom, os.path.join(C.OUT_DIR, apng),
+        process.render_anom_png(anom, os.path.join(C.OUT_DIR, apng), scale=1,   # grid CMEMS sudah 1/12 -> native
                                 bounds=_edge_bounds(meta["west"], meta["east"], meta["north"], meta["south"], meta["nx"], meta["ny"]))
         anom_frames.append({"date": date, "png": apng,
                             "nino12": idx["nino12"], "nino3": idx["nino3"],
@@ -152,7 +119,7 @@ def main():
     for mth in range(1, 13):
         cfield = np.where(sea_mask, process.clim_domain(mth, meta), np.nan)
         cpng = f"clim_{mth:02d}.webp"
-        process.render_sst_png(cfield, os.path.join(C.OUT_DIR, cpng),
+        process.render_sst_png(cfield, os.path.join(C.OUT_DIR, cpng), scale=1,   # grid CMEMS native
                                bounds=_edge_bounds(meta["west"], meta["east"], meta["north"], meta["south"], meta["nx"], meta["ny"]))
         clim_frames.append({"month": mth, "png": cpng})
 
@@ -213,7 +180,7 @@ def main():
         print("PERINGATAN suhu bawah permukaan gagal:", e)
 
     # ---- Point data (grid mentah utk klik-titik) ----
-    point_data = _write_point_data(per_step, anom_fields, anom_frames, meta, cur_native, sal_native)
+    point_data = _write_point_data(sst_day_fields, anom_fields, anom_frames, meta, cur_native, sal_native)
 
     now_iso = run.strftime("%Y-%m-%dT%H:00:00Z")   # analisis run terkini = "kini"
     today = run.strftime("%Y%m%d")
@@ -267,7 +234,7 @@ def main():
         "season_source": C.SINTEX_SOURCE, "season_clim": C.SINTEX_CLIM, "obs_clim": C.OBS_CLIM,
         "enso_thresh": C.ENSO_THRESH, "iod_thresh": C.IOD_THRESH,
         "layers": {
-            "sst": {"label": "Sea Surface Temperature", "cadence": "3h", "frames": sst_frames},
+            "sst": {"label": "Suhu Muka Laut (model laut)", "cadence": "1h", "frames": sst_frames},
             "anom": {"label": "Anomali SST", "cadence": "daily", "frames": anom_frames},
             **({"sal": {"label": "Salinitas Permukaan", "cadence": "daily",
                         "frames": salinity["frames"], "bounds": salinity["bounds"]}} if salinity else {}),

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
   <title>Kertas Fenomena — Denyut Iklim</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-  <meta name="description" content="Pemantau iklim laut Indonesia: SST, anomali SST, klimatologi, dan indeks ENSO (Nino 1+2/3/3.4/4, ONI) & IOD (DMI) dari model GFS." />
+  <meta name="description" content="Pemantau iklim laut Indonesia: SST, anomali SST, klimatologi, dan indeks ENSO (Nino 1+2/3/3.4/4, ONI) & IOD (DMI) dari model laut CMEMS." />
   <meta name="theme-color" content="#fcf8f8" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet-velocity@1.7.0/dist/leaflet-velocity.css" />
@@ -161,7 +161,7 @@
               <div class="field">
                 <div class="label-caps">MODEL</div>
                 <div class="select-wrap">
-                  <select id="model-select"><option>GFS (NOAA)</option></select>
+                  <select id="model-select"><option>CMEMS (model laut)</option></select>
                   <span class="material-symbols-outlined">arrow_drop_down</span>
                 </div>
               </div>
@@ -187,7 +187,7 @@
       <!-- ============ BOTTOM: slider (kiri) + legenda (kanan) ============ -->
       <div class="ui-bottom">
         <div class="panel timeline">
-          <div id="data-fresh" class="fresh-badge" title="Waktu inisiasi model GFS">
+          <div id="data-fresh" class="fresh-badge" title="Waktu data model laut CMEMS">
             <span class="material-symbols-outlined fresh-ico">error</span>
             <span class="mono" id="fresh-text"></span>
             <span class="material-symbols-outlined fresh-chev">chevron_right</span>
