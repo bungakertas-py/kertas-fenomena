@@ -95,7 +95,7 @@ SAL_MIN, SAL_MAX = 30.0, 38.0   # salinitas permukaan PSU (colormap haline)
 SUBTEMP = {
     "dataset": "cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m",
     "vars": ["thetao"],
-    "depths": [0, 50, 100, 200],   # meter (permukaan + 3 lapisan bawah)
+    "depths": [50, 100, 200],   # meter (lapisan bawah; PERMUKAAN dicakup SST per-jam)
     "label": "Copernicus (CMEMS)",
 }
 # Kontur kecepatan arus & point_data = resolusi ASLI (tanpa downsample).
