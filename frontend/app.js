@@ -788,6 +788,7 @@ $("pt-off").addEventListener("click", () => {
 
 /* ---- Tentang ---- */
 const aboutOverlay = $("about-overlay");
+$("nav-arrow").addEventListener("click", () => $("nav-arrow").closest(".brand-row").classList.toggle("nav-open"));
 $("about-btn").addEventListener("click", () => aboutOverlay.classList.add("show"));
 $("about-close").addEventListener("click", () => aboutOverlay.classList.remove("show"));
 aboutOverlay.addEventListener("click", (e) => { if (e.target === aboutOverlay) aboutOverlay.classList.remove("show"); });
