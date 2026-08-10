@@ -249,7 +249,7 @@ def _render_field(field, path, vmin, vmax, pos, rgb, scale=3, alpha=235, bounds=
         rgba = _merc_warp_rows(rgba, bounds[2], bounds[3])   # equirect -> Web Mercator (sejajar basemap)
     img = Image.fromarray(rgba, "RGBA")                      # tanpa SMOOTH: cegah warna darat bocor lintas-alpha
     if path.lower().endswith(".webp"):                       # WebP q90 = ~5-7x lebih kecil dari PNG, visual sama
-        img.save(path, "WEBP", quality=90, method=6, alpha_quality=100)
+        img.save(path, "WEBP", quality=90, method=4, alpha_quality=100)   # method 4: encode 2-3x lebih cepat, ukuran ~sama
     else:
         img.save(path)
 
