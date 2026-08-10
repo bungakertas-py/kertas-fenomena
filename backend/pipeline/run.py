@@ -116,7 +116,7 @@ def main():
             sea_mask = (lsm < 0.5) if lsm is not None else np.isfinite(sst)
         # render SST per langkah (wind velocity dibuang; arus laut dari Copernicus)
         tag = vt.strftime("%Y%m%d_%H")
-        png = f"sst_{tag}.png"
+        png = f"sst_{tag}.webp"
         process.render_sst_png(sst, os.path.join(C.OUT_DIR, png),
                                bounds=_edge_bounds(m["west"], m["east"], m["north"], m["south"], m["nx"], m["ny"]))
         per_step.append({"vt": vt, "date": vt.strftime("%Y%m%d"), "month": vt.month,
@@ -139,7 +139,7 @@ def main():
         anom = sst_day - clim
         anom_fields.append(anom)
         idx = process.indices_from_anom(anom, meta)
-        apng = f"anom_{date}.png"
+        apng = f"anom_{date}.webp"
         process.render_anom_png(anom, os.path.join(C.OUT_DIR, apng),
                                 bounds=_edge_bounds(meta["west"], meta["east"], meta["north"], meta["south"], meta["nx"], meta["ny"]))
         anom_frames.append({"date": date, "png": apng,
@@ -151,7 +151,7 @@ def main():
     clim_frames = []
     for mth in range(1, 13):
         cfield = np.where(sea_mask, process.clim_domain(mth, meta), np.nan)
-        cpng = f"clim_{mth:02d}.png"
+        cpng = f"clim_{mth:02d}.webp"
         process.render_sst_png(cfield, os.path.join(C.OUT_DIR, cpng),
                                bounds=_edge_bounds(meta["west"], meta["east"], meta["north"], meta["south"], meta["nx"], meta["ny"]))
         clim_frames.append({"month": mth, "png": cpng})
@@ -193,6 +193,24 @@ def main():
         print(f"  salinitas Copernicus: {len(sf)} tanggal ({','.join(f['date'] for f in sf)})")
     except Exception as e:
         print("PERINGATAN salinitas gagal:", e)
+
+    # ---- Suhu bawah permukaan FORECAST (Copernicus thetao, multi-kedalaman) ----
+    subtemp = None
+    try:
+        cdates = [f["date"] for f in anom_frames]
+        s_iso = f"{cdates[0][:4]}-{cdates[0][4:6]}-{cdates[0][6:8]}T00:00:00"
+        e_iso = f"{cdates[-1][:4]}-{cdates[-1][4:6]}-{cdates[-1][6:8]}T00:00:00"
+        stnc = os.path.join(tempfile.gettempdir(), "kf_subtemp.nc")
+        download.download_subtemp(s_iso, e_iso, stnc)
+        st = process.subtemp_frames(stnc, C.OUT_DIR)
+        b = st["bounds"]
+        subtemp = {"label": C.SUBTEMP["label"], "cadence": "daily",
+                   "depths": st["depths"], "depth_labels": st["depth_labels"], "depth_used": st["depth_used"],
+                   "frames": st["frames"],
+                   "bounds": {"lonW": b[0], "lonE": b[1], "latN": b[2], "latS": b[3]}}
+        print(f"  suhu bawah permukaan: {len(st['depths'])} kedalaman x {len(st['dates'])} tanggal (level {st['depth_used']} m)")
+    except Exception as e:
+        print("PERINGATAN suhu bawah permukaan gagal:", e)
 
     # ---- Point data (grid mentah utk klik-titik) ----
     point_data = _write_point_data(per_step, anom_fields, anom_frames, meta, cur_native, sal_native)
@@ -253,6 +271,9 @@ def main():
             "anom": {"label": "Anomali SST", "cadence": "daily", "frames": anom_frames},
             **({"sal": {"label": "Salinitas Permukaan", "cadence": "daily",
                         "frames": salinity["frames"], "bounds": salinity["bounds"]}} if salinity else {}),
+            **({"subt": {"label": "Suhu Bawah Permukaan", "cadence": "daily",
+                         "depths": subtemp["depths"], "depth_labels": subtemp["depth_labels"],
+                         "frames": subtemp["frames"], "bounds": subtemp["bounds"]}} if subtemp else {}),
             "clim": {"label": "Klimatologi SST", "cadence": "monthly", "frames": clim_frames},
         },
         "enso": {"status": cpc["oni_status"], "oni_latest": cpc["oni_latest"],

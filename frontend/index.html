@@ -97,8 +97,17 @@
               <button class="layer-btn" data-layer="sal" data-tip="Salinitas Permukaan">
                 <span class="material-symbols-outlined">water_drop</span> <span class="lb-txt">Salinitas</span>
               </button>
+              <button class="layer-btn" data-layer="subt" data-tip="Suhu Bawah Permukaan">
+                <span class="material-symbols-outlined">device_thermostat</span> <span class="lb-txt">Suhu Bawah Permukaan</span>
+              </button>
             </div>
             <button id="layer-next" class="layer-nav" aria-label="Parameter berikutnya"><span class="material-symbols-outlined">chevron_right</span></button>
+          </div>
+
+          <!-- Pemilih kedalaman (hanya saat layer Suhu Bawah Permukaan) -->
+          <div id="depth-bar" class="depth-bar panel" hidden>
+            <span class="label-caps">Kedalaman</span>
+            <div class="depth-pills" id="depth-pills"></div>
           </div>
 
           <div class="index-bar">
@@ -115,6 +124,16 @@
               <button class="index-opt" data-ix="oni">ONI</button>
               <button class="index-opt" data-ix="dmi">DMI</button>
             </div>
+          </div>
+
+          <!-- Ringkasan awam otomatis: kondisi ENSO/IOD kini + kecenderungan untuk Indonesia -->
+          <div id="climate-brief" class="panel brief-card" hidden>
+            <div class="brief-head">
+              <span class="label-caps">Kondisi Iklim Kini</span>
+              <button id="brief-close" class="brief-close" aria-label="Tutup ringkasan"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <div class="brief-chips" id="brief-chips"></div>
+            <p class="brief-text" id="brief-text"></p>
           </div>
         </div>
 

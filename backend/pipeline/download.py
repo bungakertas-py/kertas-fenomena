@@ -73,6 +73,24 @@ def download_salinity(start_iso, end_iso, dest_path):
     return dest_path
 
 
+def download_subtemp(start_iso, end_iso, dest_path):
+    """Suhu laut (`thetao`) 0-250 m forecast Copernicus -> netCDF (multi-kedalaman)."""
+    import os
+    if os.environ.get("KF_REUSE_SUBT") and os.path.exists(dest_path) and os.path.getsize(dest_path) > 1_000_000:
+        return dest_path
+    import copernicusmarine as cm
+    d = os.path.dirname(dest_path); fn = os.path.basename(dest_path)
+    cm.subset(
+        dataset_id=C.SUBTEMP["dataset"], variables=C.SUBTEMP["vars"],
+        minimum_longitude=C.LON_MIN, maximum_longitude=C.LON_MAX,
+        minimum_latitude=C.LAT_MIN, maximum_latitude=C.LAT_MAX,
+        minimum_depth=0, maximum_depth=250,
+        start_datetime=start_iso, end_datetime=end_iso,
+        output_filename=fn, output_directory=d, overwrite=True,
+    )
+    return dest_path
+
+
 def _list_hrefs(url):
     return re.findall(r'href="([^"]+)"', _get(url, timeout=(20, 60)).text)
 

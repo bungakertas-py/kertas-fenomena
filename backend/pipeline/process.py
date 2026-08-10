@@ -247,7 +247,11 @@ def _render_field(field, path, vmin, vmax, pos, rgb, scale=3, alpha=235, bounds=
     rgba = np.dstack([rgbimg, a])
     if bounds is not None:
         rgba = _merc_warp_rows(rgba, bounds[2], bounds[3])   # equirect -> Web Mercator (sejajar basemap)
-    Image.fromarray(rgba, "RGBA").save(path)                 # tanpa SMOOTH: cegah warna darat bocor lintas-alpha
+    img = Image.fromarray(rgba, "RGBA")                      # tanpa SMOOTH: cegah warna darat bocor lintas-alpha
+    if path.lower().endswith(".webp"):                       # WebP q90 = ~5-7x lebih kecil dari PNG, visual sama
+        img.save(path, "WEBP", quality=90, method=6, alpha_quality=100)
+    else:
+        img.save(path)
 
 
 def render_land_png(ocean_mask, path, scale=3, color=(27, 36, 48)):
@@ -278,6 +282,11 @@ def render_speed_png(speed, path, scale=3, bounds=None):
 def render_salinity_png(sal, path, scale=1, bounds=None):
     """Salinitas permukaan (PSU) 30..38 dgn palet haline, darat transparan."""
     _render_field(sal, path, C.SAL_MIN, C.SAL_MAX, SAL_POS, SAL_RGB, scale=scale, bounds=bounds)
+
+
+def render_subt_png(t, path, scale=1, bounds=None):
+    """Suhu laut (degC) di kedalaman tertentu, palet termal SST, grid Copernicus native."""
+    _render_field(t, path, C.SST_MIN, C.SST_MAX, SST_POS, SST_RGB, scale=scale, bounds=bounds)
 
 
 # ================= Indeks kotak =================
@@ -397,7 +406,7 @@ def currents_frames(nc_path, out_dir, ref_time):
         if not lat_desc:                                  # jadikan north-up
             u = u[::-1]; v = v[::-1]
         speed = np.sqrt(u * u + v * v)                    # NATIVE (tanpa downsample)
-        spd = f"curspd_{date}.png"
+        spd = f"curspd_{date}.webp"
         render_speed_png(speed, os.path.join(out_dir, spd), scale=1, bounds=cbounds)
         uu = u[::vs, ::vs]; vv = v[::vs, ::vs]; la = latN[::vs]; lo = lon[::vs]  # partikel distride
         vec = f"cur_{date}.json"
@@ -428,13 +437,45 @@ def salinity_frames(nc_path, out_dir):
         so = np.asarray(ds["so"].isel(time=ti).values, dtype="f4")   # darat/es = NaN (masked)
         if not lat_desc:
             so = so[::-1]                                             # north-up
-        png = f"sal_{date}.png"
+        png = f"sal_{date}.webp"
         render_salinity_png(so, os.path.join(out_dir, png), scale=1, bounds=sbounds)
         frames.append({"date": date, "png": png})
         sal_all.append(so); dates.append(date)
     ds.close()
     native = {"sal": np.stack(sal_all), "lat": latN, "lon": lon, "dates": dates}
     return frames, native
+
+
+def subtemp_frames(nc_path, out_dir):
+    """Suhu laut Copernicus (`thetao`, banyak kedalaman) -> per (kedalaman target, tanggal)
+    `subt_{k}_{DATE}.webp` NATIVE. Kembalikan info{depths, depth_labels, depth_used, frames, bounds}."""
+    import os
+    import xarray as xr
+    ds = xr.open_dataset(nc_path)
+    lat = np.asarray(ds["latitude"].values, dtype="f4")
+    lon = np.asarray(ds["longitude"].values, dtype="f4")
+    lat_desc = lat[0] > lat[-1]
+    latN = lat if lat_desc else lat[::-1]
+    sbounds = (float(lon[0]), float(lon[-1]), float(latN[0]), float(latN[-1]))
+    depvals = np.asarray(ds["depth"].values, dtype="f4")
+    targets = C.SUBTEMP["depths"]
+    lev_idx = [int(np.argmin(np.abs(depvals - t))) for t in targets]     # level CMEMS terdekat tiap target
+    used = [round(float(depvals[i]), 1) for i in lev_idx]
+    dates = [str(ds["time"].values[ti])[:10].replace("-", "") for ti in range(ds.sizes["time"])]
+    frames = {}
+    for k, di in enumerate(lev_idx):
+        lst = []
+        for ti in range(ds.sizes["time"]):
+            t2 = np.asarray(ds["thetao"].isel(time=ti, depth=di).values, dtype="f4")
+            if not lat_desc:
+                t2 = t2[::-1]
+            png = f"subt_{k}_{dates[ti]}.webp"
+            render_subt_png(t2, os.path.join(out_dir, png), scale=1, bounds=sbounds)
+            lst.append({"date": dates[ti], "png": png})
+        frames[str(k)] = lst
+    ds.close()
+    return {"depths": list(targets), "depth_used": used, "depth_labels": [f"{t} m" for t in targets],
+            "frames": frames, "bounds": sbounds, "dates": dates}
 
 
 # ================= Point data (grid mentah utk klik-titik) =================

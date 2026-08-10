@@ -29,6 +29,7 @@ const LAYER_LEGEND = {
   sst: { head: "°C", cells: SST_CELLS }, anom: { head: "°C", cells: ANOM_CELLS },
   clim: { head: "°C", cells: SST_CELLS }, index: { head: "°C", cells: ANOM_CELLS },
   current: { head: "m/s", cells: SPEED_CELLS }, sal: { head: "PSU", cells: SAL_CELLS },
+  subt: { head: "°C", cells: SST_CELLS },
 };
 /* Layer -> frame-source di state.layers (current diambil dari state.currents.frames) */
 const FRAME_SRC = { sst: "sst", anom: "anom", clim: "clim", index: "anom", sal: "sal" };
@@ -44,6 +45,7 @@ let zonesLayer = null, zonesOn = false;
 let dataBounds = null;
 let playing = false, playTimer = null;
 let selectedIndex = "nino34";
+let selectedDepth = 0;   // indeks kedalaman aktif untuk layer Suhu Bawah Permukaan
 
 /* ---- Peta (tanpa basemap, latar gelap; SST melayang di atas laut) ---- */
 const map = L.map("map", {
@@ -240,7 +242,7 @@ async function updateCurrents() {
 /* ---- Frame ---- */
 function frameTimeLabel(f) {
   if (activeLayer === "clim") return MONTHS_FULL[f.month - 1];
-  if (activeLayer === "anom" || activeLayer === "index" || activeLayer === "current" || activeLayer === "sal") { const d = f.date; return `${+d.slice(6, 8)} ${MONTHS[+d.slice(4, 6) - 1]} ${d.slice(0, 4)}`; }
+  if (activeLayer === "anom" || activeLayer === "index" || activeLayer === "current" || activeLayer === "sal" || activeLayer === "subt") { const d = f.date; return `${+d.slice(6, 8)} ${MONTHS[+d.slice(4, 6) - 1]} ${d.slice(0, 4)}`; }
   const w = toWIB(f.valid_time);
   return `${w.getUTCDate()} ${MONTHS[w.getUTCMonth()]}, ${String(w.getUTCHours()).padStart(2, "0")}:00 WIB`;
 }
@@ -249,7 +251,7 @@ function frameTimeLabel(f) {
    besar ini terasa "beku". Jadi kita tutup dgn skeleton (ganti layer) / bar (scrub frame)
    sampai <img> raster benar-benar ter-load. */
 let rasterSeq = 0, rasterBarTimer = null;
-const LAYER_NAME = { sst: "Suhu Muka Laut", anom: "Anomali SST", clim: "Klimatologi", current: "Arus Laut", index: "Indeks Iklim", sal: "Salinitas" };
+const LAYER_NAME = { sst: "Suhu Muka Laut", anom: "Anomali SST", clim: "Klimatologi", current: "Arus Laut", index: "Indeks Iklim", sal: "Salinitas", subt: "Suhu Bawah Permukaan" };
 function hideSkeleton() {
   const s = $("skeleton");
   if (!s || s.classList.contains("hide")) return;
@@ -287,6 +289,8 @@ function showFrame(i, opts) {
     const cb = state.currents.bounds; bounds = [[cb.latS, cb.lonW], [cb.latN, cb.lonE]];   // grid arus sendiri
   } else if (activeLayer === "sal" && state.layers.sal && state.layers.sal.bounds) {
     const sb = state.layers.sal.bounds; bounds = [[sb.latS, sb.lonW], [sb.latN, sb.lonE]];  // grid salinitas Copernicus
+  } else if (activeLayer === "subt" && state.layers.subt && state.layers.subt.bounds) {
+    const sb = state.layers.subt.bounds; bounds = [[sb.latS, sb.lonW], [sb.latN, sb.lonE]];  // grid suhu-kedalaman Copernicus
   }
   const url = "data/output/" + (f.png || f.spd);   // arus: kontur kecepatan (spd)
   if (overlay) { overlay.setUrl(url); overlay.setBounds(bounds); }
@@ -305,9 +309,13 @@ function showFrame(i, opts) {
 function setLayer(key) {
   if (key === "current" && (!state.currents || !state.currents.frames || !state.currents.frames.length)) { toast("Data arus belum tersedia"); return; }
   if (key === "sal" && !(state.layers.sal && state.layers.sal.frames && state.layers.sal.frames.length)) { toast("Data salinitas belum tersedia"); return; }
+  if (key === "subt" && !(state.layers.subt && state.layers.subt.frames)) { toast("Data suhu bawah permukaan belum tersedia"); return; }
   activeLayer = key;
   applyBasemap();   // gelap khusus anom, terang selainnya
-  frames = key === "current" ? state.currents.frames : state.layers[FRAME_SRC[key]].frames;
+  frames = key === "current" ? state.currents.frames
+    : key === "subt" ? state.layers.subt.frames[String(selectedDepth)]   // per kedalaman terpilih
+    : state.layers[FRAME_SRC[key]].frames;
+  updateDepthBar();   // tampilkan pemilih kedalaman hanya di layer subt
   document.querySelectorAll(".layer-btn").forEach((b) => b.classList.toggle("active", b.dataset.layer === key));
   document.querySelectorAll(".index-opt").forEach((o) => o.classList.remove("active"));   // keluar mode indeks
   renderLegend(key); buildTicks();
@@ -317,6 +325,26 @@ function setLayer(key) {
   openIndex(false);   // sidebar hanya untuk mode Indeks
   if (pointActive) { if (POINT_PARAM[key]) loadPD(POINT_PARAM[key].pd).then(() => updatePointPopup()); else closePoint(); }
   showFrame(nowIndex(), { layerSwitch: true });
+}
+
+/* ---- Pemilih kedalaman (khusus layer Suhu Bawah Permukaan) ---- */
+function updateDepthBar() {
+  const on = activeLayer === "subt" && !!state.layers.subt;
+  $("depth-bar").hidden = !on;
+  if (!on) return;
+  const labels = state.layers.subt.depth_labels || (state.layers.subt.depths || []).map((d) => d + " m");
+  $("depth-pills").innerHTML = labels.map((lb, i) =>
+    `<button class="depth-pill${i === selectedDepth ? " active" : ""}" data-depth="${i}">${lb}</button>`).join("");
+  $("depth-pills").querySelectorAll(".depth-pill").forEach((b) =>
+    b.addEventListener("click", () => setDepth(+b.dataset.depth)));
+}
+function setDepth(i) {
+  if (i === selectedDepth || !state.layers.subt || !state.layers.subt.frames[String(i)]) return;
+  selectedDepth = i;
+  frames = state.layers.subt.frames[String(i)];
+  $("time-slider").max = String(Math.max(0, frames.length - 1));
+  updateDepthBar(); buildTicks();
+  showFrame(Math.min(frameIdx, frames.length - 1), { layerSwitch: true });
 }
 
 /* ---- Ticks per cadence ---- */
@@ -329,7 +357,7 @@ function buildTicks() {
     const edge = i === 0 ? " edge-start" : (i === n - 1 ? " edge-end" : "");
     let lbl = "", isDay = false;
     if (activeLayer === "clim") { lbl = MONTHS[f.month - 1]; isDay = true; }
-    else if (activeLayer === "anom" || activeLayer === "index" || activeLayer === "current" || activeLayer === "sal") { lbl = `${+f.date.slice(6, 8)} ${MONTHS[+f.date.slice(4, 6) - 1]}`; isDay = true; }
+    else if (activeLayer === "anom" || activeLayer === "index" || activeLayer === "current" || activeLayer === "sal" || activeLayer === "subt") { lbl = `${+f.date.slice(6, 8)} ${MONTHS[+f.date.slice(4, 6) - 1]}`; isDay = true; }
     else { const w = toWIB(f.valid_time), day = w.getUTCDate(); isDay = i === 0 || day !== prev; prev = day; lbl = isDay ? `${day} ${MONTHS[w.getUTCMonth()]}` : ""; }
     return `<div class="tl-tick${isDay ? " day" : ""}${edge}" style="left:${pos}%"><span class="tl-tick-mark"></span>${lbl ? `<span class="tl-tick-lbl">${lbl}</span>` : ""}</div>`;
   }).join("");
@@ -813,6 +841,38 @@ $("param-toggle").addEventListener("click", (e) => e.currentTarget.parentElement
 $("data-fresh").addEventListener("click", () => $("data-fresh").classList.toggle("open"));
 
 /* ---- Init ---- */
+/* ---- Ringkasan awam otomatis: terjemahkan kondisi ENSO/IOD -> kalimat + dampak Indonesia ---- */
+function ensoStrength(oni) {
+  const a = Math.abs(oni);
+  if (a < 0.5) return ""; if (a < 1.0) return "lemah"; if (a < 1.5) return "sedang";
+  if (a < 2.0) return "kuat"; return "sangat kuat";
+}
+function laySummary() {
+  const es = state.enso.status || "Netral";                         // El Nino / La Nina / Netral
+  const oni = state.enso.oni_latest ? state.enso.oni_latest.anom : null;
+  const is = state.iod.status || "Netral";                          // IOD Positif / IOD Negatif / Netral
+  const strg = oni != null ? ensoStrength(oni) : "";
+  const ensoLabel = es === "Netral" ? "ENSO netral" : `${es}${strg ? " " + strg : ""}`;
+  let dampak;
+  if (es.indexOf("El Nino") >= 0) dampak = "Indonesia cenderung lebih kering dari biasanya (hujan di bawah normal); waspada kekeringan dan kebakaran lahan.";
+  else if (es.indexOf("La Nina") >= 0) dampak = "Indonesia cenderung lebih basah dari biasanya (hujan di atas normal); waspada banjir dan longsor.";
+  else dampak = "Pola hujan Indonesia cenderung mendekati normal.";
+  if (is.indexOf("Positif") >= 0) dampak += " IOD positif memperkuat kecenderungan kering, terutama Indonesia bagian barat.";
+  else if (is.indexOf("Negatif") >= 0) dampak += " IOD negatif menambah peluang hujan, terutama Indonesia bagian barat.";
+  return { ensoLabel, es, is, dampak };
+}
+function renderBrief() {
+  if (!state || !state.enso || !state.iod) return;
+  const s = laySummary();
+  const iodLabel = s.is === "Netral" ? "IOD Netral" : s.is;
+  $("brief-chips").innerHTML =
+    `<span class="chip ${statusChip(s.es)}">${s.ensoLabel}</span>` +
+    `<span class="chip ${statusChip(s.is)}">${iodLabel}</span>`;
+  $("brief-text").textContent = s.dampak + " Ini kecenderungan umum, bukan kepastian.";
+  $("climate-brief").hidden = false;
+}
+$("brief-close").addEventListener("click", () => { $("climate-brief").hidden = true; });
+
 renderLegend("sst");
 fetch(DATA, { cache: "no-store" }).then((r) => r.json()).then((doc) => {
   state = doc;
@@ -822,7 +882,9 @@ fetch(DATA, { cache: "no-store" }).then((r) => r.json()).then((doc) => {
   if (state.currents && state.currents.label) $("cur-model-opt").textContent = state.currents.label;
   document.querySelector('.layer-btn[data-layer="current"]').classList.toggle("disabled", !(state.currents && state.currents.frames && state.currents.frames.length));
   document.querySelector('.layer-btn[data-layer="sal"]').classList.toggle("disabled", !(state.layers.sal && state.layers.sal.frames && state.layers.sal.frames.length));
+  document.querySelector('.layer-btn[data-layer="subt"]').classList.toggle("disabled", !(state.layers.subt && state.layers.subt.frames));
   setLayer("sst");   // mulai di SST; panel indeks dibangun saat pilih dari dropdown
+  renderBrief();     // ringkasan awam kondisi iklim kini
   frameRegion();
   map.on("resize", frameRegion);
   if (state.run) { const w = toWIB(state.run); $("fresh-text").textContent = `Update: ${String(w.getUTCHours()).padStart(2, "0")}:00 WIB, ${w.getUTCDate()} ${MONTHS[w.getUTCMonth()]}`; }
