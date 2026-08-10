@@ -75,6 +75,24 @@ def _write_point_data(sst_day_fields, anom_fields, anom_frames, meta, cur_native
     return pd
 
 
+def _apply_index_bias_correction(anom_frames, obs_ser, keys):
+    """Koreksi-bias: SST CMEMS lebih hangat dari baseline COBE -> indeks kita bias tinggi.
+    Geser tiap indeks CMEMS sebesar offset rata-rata (CMEMS - OISST) pada hari yg ada di
+    KEDUANYA, supaya angka & garis menyambung observasi OISST. anom_frames dikoreksi in-place.
+    (Peta anomali TETAP relatif-COBE; ini khusus indeks/angka.)"""
+    for k in keys:
+        obs = {r["date"]: r["v"] for r in obs_ser.get(k, []) if r.get("v") is not None}
+        diffs = [f[k] - obs[f["date"]] for f in anom_frames
+                 if f.get(k) is not None and f["date"] in obs]
+        if not diffs:
+            continue
+        off = sum(diffs) / len(diffs)
+        for f in anom_frames:
+            if f.get(k) is not None:
+                f[k] = round(f[k] - off, 3)
+        print(f"  koreksi-bias {k}: offset {off:+.2f} (n={len(diffs)} hari tumpang-tindih OISST)")
+
+
 def main():
     os.makedirs(C.OUT_DIR, exist_ok=True)
     # SST dari MODEL LAUT CMEMS per-jam (ganti GFS). Jendela: retensi..forecast jam sekitar "kini".
@@ -182,24 +200,8 @@ def main():
     # ---- Point data (grid mentah utk klik-titik) ----
     point_data = _write_point_data(sst_day_fields, anom_fields, anom_frames, meta, cur_native, sal_native)
 
-    now_iso = run.strftime("%Y-%m-%dT%H:00:00Z")   # analisis run terkini = "kini"
-    today = run.strftime("%Y%m%d")
-    latest = next((f for f in anom_frames if f["date"] == today), anom_frames[0])  # hari "kini"
-
-    # ---- Indeks resmi CPC (tumpang) ----
-    try:
-        cpc = indices.fetch_cpc(months=24)
-    except Exception as e:
-        print("PERINGATAN CPC gagal:", e)
-        cpc = {"oni_latest": None, "oni_status": None, "nino_series": {}, "series_labels": []}
-
-    regions = {k: {"label": indices.NINO_LABELS[k], "now": latest[k],
-                   "series": cpc["nino_series"].get(k, [])} for k in indices.NINO_KEYS}
-    dmi_series = [{"date": f["date"], "dmi": f["dmi"]} for f in anom_frames]
-
-    # ---- Seri indeks harian: GFS (forecast) vs OISST (observasi) ----
+    # ---- OISST observasi (dulu) -> lalu KOREKSI-BIAS indeks CMEMS agar menyambung observasi ----
     SER_KEYS = ("nino12", "nino3", "nino34", "nino4", "dmi")
-    gfs_ser = {k: [{"date": f["date"], "v": f[k]} for f in anom_frames] for k in SER_KEYS}
     obs_ser = {k: [] for k in SER_KEYS}
     try:
         files = download.latest_oisst_files(C.OISST_DAYS)
@@ -213,6 +215,23 @@ def main():
                 print("  OISST lewati", date, e)
     except Exception as e:
         print("PERINGATAN OISST gagal:", e)
+    _apply_index_bias_correction(anom_frames, obs_ser, SER_KEYS)   # anom_frames dikoreksi in-place
+
+    now_iso = run.strftime("%Y-%m-%dT%H:00:00Z")   # analisis run terkini = "kini"
+    today = run.strftime("%Y%m%d")
+    latest = next((f for f in anom_frames if f["date"] == today), anom_frames[0])  # hari "kini" (terkoreksi)
+
+    # ---- Indeks resmi CPC (tumpang) ----
+    try:
+        cpc = indices.fetch_cpc(months=24)
+    except Exception as e:
+        print("PERINGATAN CPC gagal:", e)
+        cpc = {"oni_latest": None, "oni_status": None, "nino_series": {}, "series_labels": []}
+
+    regions = {k: {"label": indices.NINO_LABELS[k], "now": latest[k],
+                   "series": cpc["nino_series"].get(k, [])} for k in indices.NINO_KEYS}
+    dmi_series = [{"date": f["date"], "dmi": f["dmi"]} for f in anom_frames]
+    gfs_ser = {k: [{"date": f["date"], "v": f[k]} for f in anom_frames] for k in SER_KEYS}   # terkoreksi
     index_series = {k: {"obs": obs_ser[k], "gfs": gfs_ser[k]} for k in SER_KEYS}
     index_series["oni"] = {"official": cpc.get("oni_series", [])}
 
