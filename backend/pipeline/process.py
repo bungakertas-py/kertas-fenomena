@@ -14,6 +14,7 @@ from . import config as C
 MS_TO_KT = 1.943844
 LAND_GEOJSON = os.path.join(C.ROOT, "frontend", "data", "osm_land.geojson")  # coastline SAMA dgn tile OSM (z<=9)
 _LMASK = {}
+_LCOVER = {}
 
 
 def land_render_mask(west, east, north, south, W, H, erode=0):
@@ -142,15 +143,25 @@ def clim_domain(month, meta):
 SST_POS = [0.0, 0.14, 0.30, 0.45, 0.60, 0.72, 0.83, 0.93, 1.0]
 SST_RGB = [[8, 3, 107], [33, 102, 172], [67, 147, 195], [53, 200, 169], [127, 211, 79],
            [232, 208, 32], [245, 159, 0], [232, 72, 28], [165, 0, 38]]
-# Anomali diverging: dingin BIRU -> 0 HITAM -> hangat MERAH (pusat gelap; darat = basemap terang)
-ANOM_POS = [0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0]
-ANOM_RGB = [[86, 170, 235], [40, 112, 192], [18, 42, 82], [8, 8, 12],
-            [74, 22, 28], [178, 46, 44], [242, 56, 44]]
-# Kecepatan arus 0..2 m/s (INFERNO): tenang = ungu-gelap -> deras magenta/oranye/kuning menyala
-SPEED_POS = [0.0, 0.14, 0.32, 0.5, 0.7, 0.86, 1.0]
-SPEED_RGB = [[16, 12, 48], [64, 18, 98], [132, 32, 107], [204, 58, 72],
-             [246, 128, 22], [250, 194, 42], [252, 255, 170]]
+# Anomali: palet SEISMIC diverging (biru dingin -> putih 0 -> merah panas), -3..+3 degC.
+# Pusat PUTIH -> basemap anomali dibuat GELAP di frontend biar kontras.
+ANOM_POS = [0.0, 0.0667, 0.1333, 0.2, 0.2667, 0.3333, 0.4, 0.4667, 0.5333, 0.6, 0.6667, 0.7333, 0.8, 0.8667, 0.9333, 1.0]
+ANOM_RGB = [[0, 0, 76], [0, 0, 124], [0, 0, 172], [0, 0, 219], [17, 17, 255], [85, 85, 255],
+            [153, 153, 255], [221, 221, 255], [255, 221, 221], [255, 153, 153], [255, 85, 85],
+            [255, 17, 17], [230, 0, 0], [195, 0, 0], [162, 0, 0], [128, 0, 0]]
+# Kecepatan arus 0..2 m/s (OCEAN): tenang = hijau/biru gelap -> deras biru muda -> putih
+SPEED_POS = [0.0, 0.0667, 0.1333, 0.2, 0.2667, 0.3333, 0.4, 0.4667, 0.5333, 0.6, 0.6667, 0.7333, 0.8, 0.8667, 0.9333, 1.0]
+SPEED_RGB = [[0, 128, 0], [0, 102, 17], [0, 76, 34], [0, 51, 51], [0, 25, 68], [0, 0, 85],
+             [0, 26, 102], [0, 51, 119], [0, 77, 136], [0, 102, 153], [0, 128, 170],
+             [51, 153, 187], [102, 179, 204], [153, 204, 221], [204, 229, 238], [255, 255, 255]]
 SPEED_MAX = 2.0
+# Salinitas permukaan 30..38 PSU (HALINE): navy gelap -> biru -> teal -> hijau -> kuning pucat
+SAL_POS = [0.0, 0.0667, 0.1333, 0.2, 0.2667, 0.3333, 0.4, 0.4667, 0.5333, 0.6, 0.6667, 0.7333, 0.8, 0.8667, 0.9333, 1.0]
+SAL_RGB = [[17, 24, 84], [23, 41, 108], [27, 59, 127], [30, 78, 140], [29, 97, 147], [27, 115, 149],
+           [24, 134, 148], [28, 149, 141], [43, 163, 131], [70, 178, 118], [103, 190, 103],
+           [139, 201, 93], [178, 212, 86], [209, 223, 109], [231, 233, 137], [245, 242, 170]]
+COAST_FEATHER = 1.0   # blur tipis cakupan darat (px); supersampling sudah anti-alias, ini sekadar pelembut
+COAST_TRIM = 1        # kikis N sel low-res dari tepi darat: buang sel laut pesisir GFS yg terkontaminasi darat
 
 
 def _colormap(norm01, pos, rgb):
@@ -190,20 +201,43 @@ def _merc_warp_rows(arr, north, south):
     return (arr[s0].astype("f4") * (1 - t) + arr[s1].astype("f4") * t).astype(arr.dtype)
 
 
+def land_cover(west, east, north, south, W, H, ss=2):
+    """Cakupan darat HALUS (0..1) via supersampling: gambar poligon di ss*W x ss*H lalu
+    ciutkan -> tepi pantai anti-alias (bukan biner bergerigi)."""
+    key = (round(west, 3), round(east, 3), round(north, 3), round(south, 3), W, H, ss)
+    if key in _LCOVER:
+        return _LCOVER[key]
+    m = land_render_mask(west, east, north, south, W * ss, H * ss)   # boolean hi-res (cache sendiri)
+    cov = np.asarray(Image.fromarray((m * 255).astype("u1"), "L").resize((W, H), Image.BILINEAR), dtype="f4") / 255.0
+    if COAST_FEATHER:
+        cov = np.asarray(Image.fromarray((cov * 255).astype("u1"), "L").filter(ImageFilter.GaussianBlur(COAST_FEATHER)), dtype="f4") / 255.0
+    _LCOVER[key] = cov
+    return cov
+
+
 def _render_field(field, path, vmin, vmax, pos, rgb, scale=3, alpha=235, bounds=None, dilate=4):
-    """Gradasi kontinu, halus dekat pantai (inpaint). Bila `bounds` diberikan -> alpha pakai
-    MASK GARIS PANTAI 10m: laut opaque tepat sampai pantai, DARAT transparan (basemap OSM tembus).
-    Tanpa bounds -> fallback lama (alpha dari mask data + dilate)."""
+    """Gradasi kontinu, halus dekat pantai. Bila `bounds` diberikan -> DARAT ditopeng jadi NaN
+    lalu diisi ulang dari LAUT terdekat (buang rim dingin/pelangi di pantai), dan alpha pakai
+    cakupan darat anti-alias (laut opaque -> darat transparan mulus). Tanpa bounds -> fallback lama."""
     ny, nx = field.shape
     mask = np.isfinite(field)
-    filled = _fill_nan_nearest(field)
+    field = field.astype("f4").copy()
+    if bounds is not None:
+        # KUNCI: topeng darat jadi NaN di LOW-RES sebelum upsample. Darat SST=0 (bukan NaN) -> kalau
+        # dibiarkan, BICUBIC menginterpolasi laut-hangat <-> 0 di pantai -> rim navy + pelangi. Diisi
+        # ulang dari laut terdekat dulu, jadi tepi pantai laut<->laut (mulus, tanpa rim).
+        land_lo = land_render_mask(bounds[0], bounds[1], bounds[2], bounds[3], nx, ny)
+        if COAST_TRIM:   # tumbuhkan darat 1 sel -> sel laut pesisir terkontaminasi ikut diisi ulang dari laut lepas
+            land_lo = np.asarray(Image.fromarray((land_lo * 255).astype("u1"), "L").filter(ImageFilter.MaxFilter(COAST_TRIM * 2 + 1))) >= 128
+        field[land_lo] = np.nan
+    filled = _fill_nan_nearest(field, iters=24)
     W, H = nx * scale, ny * scale
-    up = np.asarray(Image.fromarray(filled.astype("f4"), "F").resize((W, H), Image.BICUBIC), dtype="f4")
+    up = np.asarray(Image.fromarray(filled, "F").resize((W, H), Image.BICUBIC), dtype="f4")
     norm = np.clip((up - vmin) / (vmax - vmin), 0.0, 1.0)
     rgbimg = _colormap(norm, pos, rgb)
     if bounds is not None:
-        land = land_render_mask(bounds[0], bounds[1], bounds[2], bounds[3], W, H)
-        a = np.where(land, 0, alpha).astype("u1")             # darat transparan (OSM tembus)
+        cov = land_cover(bounds[0], bounds[1], bounds[2], bounds[3], W, H)   # cakupan darat anti-alias (0..1)
+        a = ((1.0 - cov) * alpha).astype("u1")                # alpha anti-alias: mulus laut->darat, tanpa halo
     else:
         mimg = Image.fromarray((mask * 255).astype("u1"), "L")
         if dilate:
@@ -213,7 +247,7 @@ def _render_field(field, path, vmin, vmax, pos, rgb, scale=3, alpha=235, bounds=
     rgba = np.dstack([rgbimg, a])
     if bounds is not None:
         rgba = _merc_warp_rows(rgba, bounds[2], bounds[3])   # equirect -> Web Mercator (sejajar basemap)
-    Image.fromarray(rgba, "RGBA").filter(ImageFilter.SMOOTH).save(path)
+    Image.fromarray(rgba, "RGBA").save(path)                 # tanpa SMOOTH: cegah warna darat bocor lintas-alpha
 
 
 def render_land_png(ocean_mask, path, scale=3, color=(27, 36, 48)):
@@ -239,6 +273,11 @@ def render_anom_png(anom, path, bounds=None):
 def render_speed_png(speed, path, scale=3, bounds=None):
     """Kontur kecepatan arus (magnitude m/s), 0..SPEED_MAX, darat transparan."""
     _render_field(speed, path, 0.0, SPEED_MAX, SPEED_POS, SPEED_RGB, scale=scale, bounds=bounds)
+
+
+def render_salinity_png(sal, path, scale=1, bounds=None):
+    """Salinitas permukaan (PSU) 30..38 dgn palet haline, darat transparan."""
+    _render_field(sal, path, C.SAL_MIN, C.SAL_MAX, SAL_POS, SAL_RGB, scale=scale, bounds=bounds)
 
 
 # ================= Indeks kotak =================
@@ -370,10 +409,39 @@ def currents_frames(nc_path, out_dir, ref_time):
     return frames, native
 
 
+def salinity_frames(nc_path, out_dir):
+    """Salinitas Copernicus (nc multi-waktu, var `so`) -> per TANGGAL `sal_DATE.png` NATIVE.
+    Kembalikan (frames[{date,png}], native{sal,lat,lon,dates}) utk point_data."""
+    import os
+    import xarray as xr
+    ds = xr.open_dataset(nc_path)
+    if "depth" in ds.dims:
+        ds = ds.isel(depth=0)
+    lat = np.asarray(ds["latitude"].values, dtype="f4")
+    lon = np.asarray(ds["longitude"].values, dtype="f4")
+    lat_desc = lat[0] > lat[-1]
+    latN = lat if lat_desc else lat[::-1]
+    sbounds = (float(lon[0]), float(lon[-1]), float(latN[0]), float(latN[-1]))
+    frames, sal_all, dates = [], [], []
+    for ti in range(ds.sizes["time"]):
+        date = str(ds["time"].values[ti])[:10].replace("-", "")
+        so = np.asarray(ds["so"].isel(time=ti).values, dtype="f4")   # darat/es = NaN (masked)
+        if not lat_desc:
+            so = so[::-1]                                             # north-up
+        png = f"sal_{date}.png"
+        render_salinity_png(so, os.path.join(out_dir, png), scale=1, bounds=sbounds)
+        frames.append({"date": date, "png": png})
+        sal_all.append(so); dates.append(date)
+    ds.close()
+    native = {"sal": np.stack(sal_all), "lat": latN, "lon": lon, "dates": dates}
+    return frames, native
+
+
 # ================= Point data (grid mentah utk klik-titik) =================
 def pack_grid(stack, scale):
     """(nt,ny,nx) atau (ncomp,nt,ny,nx) float -> int16 gzip (NaN=-32768)."""
     import gzip
-    a = np.where(np.isfinite(stack), np.round(np.asarray(stack) / scale), -32768)
-    a = np.clip(a, -32767, 32767).astype("<i2")
+    fin = np.isfinite(stack)
+    a = np.clip(np.round(np.asarray(stack) / scale), -32767, 32767)   # clip DATA dulu
+    a = np.where(fin, a, -32768).astype("<i2")                        # sentinel NaN = -32768 (jangan ke-clip)
     return gzip.compress(a.tobytes(), 6)

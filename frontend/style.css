@@ -120,6 +120,12 @@ html, body {
 
 /* ---- Model / level / init ---- */
 .selects { width: 224px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+/* Kontainer MODEL jadi toggle: panel muncul ke KIRI tombol saat dibuka */
+.model-wrap { position: relative; }
+.model-wrap .selects { display: none; position: absolute; top: 0; right: calc(100% + 10px); }
+.model-wrap.open .selects { display: flex; }
+.model-wrap.open #model-toggle { background: var(--lime); }
+.model-wrap.open #model-toggle .material-symbols-outlined { color: var(--on-lime); }
 .field .label-caps { margin-bottom: 4px; }
 .select-wrap { position: relative; }
 .select-wrap select {
@@ -336,9 +342,34 @@ html, body {
 }
 .sk-mark { animation: sk-pulse 1.4s ease-in-out infinite; }
 @keyframes sk-pulse { 0%, 100% { transform: scale(1); opacity: .9; } 50% { transform: scale(1.09); opacity: 1; } }
-.sk-load-text { color: #97a0aa; font-size: 12px; letter-spacing: .08em; }
+.sk-load-text { color: #97a0aa; font-size: 12px; letter-spacing: .08em; font-family: var(--font-mono); }
+
+/* ---- Loading peta (ganti parameter / scrub frame) ----
+   Skeleton menutup raster domain besar saat PNG baru diunduh, lalu lepas begitu siap.
+   z-index 490: di atas semua pane data (<=462) tapi di bawah #ui (500), jadi kontrol tetap bisa dipakai. */
+#map-loading {
+  position: absolute; inset: 0; z-index: 490; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background: #eef1f4; opacity: 0; pointer-events: none; transition: opacity .18s ease;
+}
+#map-loading.show { opacity: 1; }
+.ml-fill { position: absolute; inset: 0; border-radius: 0; background: #e6eaee; }
+.ml-center { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+
+/* Bar tipis di atas peta saat scrub/putar frame (feedback halus, tak menutup peta) */
+#raster-bar {
+  position: absolute; top: 0; left: 0; right: 0; height: 3px; z-index: 495;
+  opacity: 0; pointer-events: none; transition: opacity .15s ease; overflow: hidden;
+}
+#raster-bar.show { opacity: 1; }
+#raster-bar span {
+  position: absolute; top: 0; height: 100%; width: 38%; background: var(--lime);
+  animation: rb-slide 1s linear infinite;
+}
+@keyframes rb-slide { 0% { left: -38%; } 100% { left: 100%; } }
+
 @media (prefers-reduced-motion: reduce) {
-  .sk-bar::after, .sk-mark { animation: none; }
+  .sk-bar::after, .sk-mark, #raster-bar span { animation: none; }
 }
 .leaflet-control-attribution { font-family: var(--font-mono); font-size: 9px; }
 

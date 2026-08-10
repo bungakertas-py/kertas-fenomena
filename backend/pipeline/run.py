@@ -34,9 +34,9 @@ def _edge_bounds(west, east, north, south, nx, ny):
     return (west, east, north, south)
 
 
-def _write_point_data(per_step, anom_fields, anom_frames, meta, cur_native):
+def _write_point_data(per_step, anom_fields, anom_frames, meta, cur_native, sal_native=None):
     """Grid mentah (int16 gzip) utk klik-titik: SST(3-jam), Anomali(harian) di grid GFS;
-    arus u/v(harian) di grid Copernicus native."""
+    arus u/v(harian) & salinitas(harian) di grid Copernicus native."""
     pd = {}
     try:
         with open(os.path.join(C.OUT_DIR, "pd_sst.bin.gz"), "wb") as f:
@@ -61,6 +61,14 @@ def _write_point_data(per_step, anom_fields, anom_frames, meta, cur_native):
                          "ny": int(len(lat)), "nx": int(len(lon)),
                          "west": float(lon[0]), "east": float(lon[-1]),
                          "north": float(lat[0]), "south": float(lat[-1]), "dates": cur_native["dates"]}
+        if sal_native:
+            lat, lon = sal_native["lat"], sal_native["lon"]
+            with open(os.path.join(C.OUT_DIR, "pd_sal.bin.gz"), "wb") as f:
+                f.write(process.pack_grid(sal_native["sal"], 0.01))   # PSU ~30-38, scale 0.01 (int16 aman)
+            pd["sal"] = {"file": "pd_sal.bin.gz", "scale": 0.01, "nt": len(sal_native["dates"]),
+                         "ny": int(len(lat)), "nx": int(len(lon)),
+                         "west": float(lon[0]), "east": float(lon[-1]),
+                         "north": float(lat[0]), "south": float(lat[-1]), "dates": sal_native["dates"]}
         print(f"  point_data: {list(pd)}")
     except Exception as e:
         print("PERINGATAN point_data gagal:", e)
@@ -168,8 +176,26 @@ def main():
     except Exception as e:
         print("PERINGATAN arus laut gagal:", e)
 
+    # ---- Salinitas permukaan FORECAST (Copernicus, per tanggal SST) ----
+    salinity = None
+    sal_native = None
+    try:
+        cdates = [f["date"] for f in anom_frames]
+        s_iso = f"{cdates[0][:4]}-{cdates[0][4:6]}-{cdates[0][6:8]}T00:00:00"
+        e_iso = f"{cdates[-1][:4]}-{cdates[-1][4:6]}-{cdates[-1][6:8]}T00:00:00"
+        snc = os.path.join(tempfile.gettempdir(), "kf_salinity.nc")
+        download.download_salinity(s_iso, e_iso, snc)
+        sf, sal_native = process.salinity_frames(snc, C.OUT_DIR)
+        slat, slon = sal_native["lat"], sal_native["lon"]
+        sb = _edge_bounds(float(slon[0]), float(slon[-1]), float(slat[0]), float(slat[-1]), len(slon), len(slat))
+        salinity = {"label": C.SALINITY["label"], "cadence": "daily", "frames": sf,
+                    "bounds": {"lonW": sb[0], "lonE": sb[1], "latN": sb[2], "latS": sb[3]}}
+        print(f"  salinitas Copernicus: {len(sf)} tanggal ({','.join(f['date'] for f in sf)})")
+    except Exception as e:
+        print("PERINGATAN salinitas gagal:", e)
+
     # ---- Point data (grid mentah utk klik-titik) ----
-    point_data = _write_point_data(per_step, anom_fields, anom_frames, meta, cur_native)
+    point_data = _write_point_data(per_step, anom_fields, anom_frames, meta, cur_native, sal_native)
 
     now_iso = run.strftime("%Y-%m-%dT%H:00:00Z")   # analisis run terkini = "kini"
     today = run.strftime("%Y%m%d")
@@ -225,6 +251,8 @@ def main():
         "layers": {
             "sst": {"label": "Sea Surface Temperature", "cadence": "3h", "frames": sst_frames},
             "anom": {"label": "Anomali SST", "cadence": "daily", "frames": anom_frames},
+            **({"sal": {"label": "Salinitas Permukaan", "cadence": "daily",
+                        "frames": salinity["frames"], "bounds": salinity["bounds"]}} if salinity else {}),
             "clim": {"label": "Klimatologi SST", "cadence": "monthly", "frames": clim_frames},
         },
         "enso": {"status": cpc["oni_status"], "oni_latest": cpc["oni_latest"],

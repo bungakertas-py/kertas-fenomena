@@ -16,17 +16,22 @@ const NINO_ORDER = ["nino12", "nino3", "nino34", "nino4"];
 /* Legenda per layer (cocok gradasi kontinu process.py). */
 const SST_CELLS = [["0", "#08036b", 1], ["4", "#1e5ba5", 1], ["8", "#3885bc", 1], ["12", "#3cadb6", 0],
   ["16", "#4ecc8b", 0], ["20", "#95d245", 0], ["24", "#ecc317", 0], ["28", "#ef780d", 1], ["32", "#a50026", 1]];
-const ANOM_CELLS = [["-3", "#56aaeb", 0], ["-2", "#2f78c5", 1], ["-1", "#193f75", 1], ["-0.5", "#102244", 1],
-  ["0", "#08080c", 1], ["+0.5", "#3b1319", 1], ["+1", "#691e22", 1], ["+2", "#ba2f2d", 1], ["+3", "#f0372d", 1]];
-const SPEED_CELLS = [["0", "#100c30", 1], ["0.25", "#3b115d", 1], ["0.5", "#691b67", 1], ["0.75", "#9a2860", 1],
-  ["1", "#cc3a48", 1], ["1.5", "#f7941c", 0], ["2", "#fcffaa", 0]];
+// Anomali: palet SEISMIC (cocok render_anom_png backend), -3..+3 degC; basemap gelap saat anom aktif
+const ANOM_CELLS = [["-3", "#00004c", 1], ["-2", "#0000c2", 1], ["-1", "#5555ff", 1], ["-0.5", "#a9a9ff", 0],
+  ["0", "#fffdfd", 0], ["+0.5", "#ffa9a9", 0], ["+1", "#ff5555", 1], ["+2", "#d30000", 1], ["+3", "#800000", 1]];
+// Arus: palet OCEAN (cocok render_speed_png backend), 0..2 m/s
+const SPEED_CELLS = [["0", "#008000", 1], ["0.25", "#005020", 1], ["0.5", "#002040", 1], ["0.75", "#001060", 1],
+  ["1", "#004080", 1], ["1.5", "#42a0c0", 1], ["2", "#ffffff", 0]];
+// Salinitas: palet HALINE (cocok render_salinity_png backend), 30..38 PSU
+const SAL_CELLS = [["30", "#111854", 1], ["31", "#1b397d", 1], ["32", "#1d5c91", 1], ["33", "#197f94", 1],
+  ["34", "#1e9c8a", 1], ["35", "#53b670", 0], ["36", "#95cc5b", 0], ["37", "#d4e06f", 0], ["38", "#f5f2aa", 0]];
 const LAYER_LEGEND = {
-  sst: { head: "SST °C", cells: SST_CELLS }, anom: { head: "Anomali °C", cells: ANOM_CELLS },
-  clim: { head: "Klim °C", cells: SST_CELLS }, index: { head: "Anomali °C", cells: ANOM_CELLS },
-  current: { head: "Arus m/s", cells: SPEED_CELLS },
+  sst: { head: "°C", cells: SST_CELLS }, anom: { head: "°C", cells: ANOM_CELLS },
+  clim: { head: "°C", cells: SST_CELLS }, index: { head: "°C", cells: ANOM_CELLS },
+  current: { head: "m/s", cells: SPEED_CELLS }, sal: { head: "PSU", cells: SAL_CELLS },
 };
 /* Layer -> frame-source di state.layers (current diambil dari state.currents.frames) */
-const FRAME_SRC = { sst: "sst", anom: "anom", clim: "clim", index: "anom" };
+const FRAME_SRC = { sst: "sst", anom: "anom", clim: "clim", index: "anom", sal: "sal" };
 
 let state = null;
 let activeLayer = "sst";
@@ -51,15 +56,22 @@ map.createPane("sst"); map.getPane("sst").style.zIndex = 390;   // DI BAWAH over
 map.createPane("boxes"); map.getPane("boxes").style.zIndex = 460; map.getPane("boxes").style.pointerEvents = "none";
 map.createPane("zones"); map.getPane("zones").style.zIndex = 462;   // zona indeks yang bisa diklik (pointerEvents default: auto)
 
-// Basemap OSM (terang) di lapisan BAWAH: cuma kelihatan di DARAT (laut ketutup data transparan di pantai).
+// Basemap di lapisan BAWAH: cuma kelihatan di DARAT (laut ketutup data transparan di pantai).
+// Terang (OSM) untuk kebanyakan layer; GELAP (CARTO dark) KHUSUS anomali (palet seismic pusat putih).
+const BASE_LIGHT = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+const BASE_DARK = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png";
 L.control.attribution({ prefix: false, position: "bottomright" }).addTo(map);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+const baseTile = L.tileLayer(BASE_LIGHT, {
   pane: "basemap", subdomains: "abc", crossOrigin: true, maxZoom: 19,
-  attribution: "© OpenStreetMap contributors",
+  attribution: "© OpenStreetMap contributors, © CARTO",
 }).addTo(map);
+function applyBasemap() {
+  const url = activeLayer === "anom" ? BASE_DARK : BASE_LIGHT;   // basemap gelap hanya untuk layer anomali
+  if (baseTile._url !== url) baseTile.setUrl(url);
+}
 
 function frameRegion() {
-  if (!dataBounds || zonesOn) return;   // saat mode Zona: jangan reset view (biar semua zona tetap terlihat)
+  if (!dataBounds || zonesOn || activeLayer === "index") return;   // mode Zona/Indeks: jangan reset view (zoomZone yg atur)
   const crs = map.options.crs;
   const sw = crs.project(VIEW_CORE.getSouthWest()), ne = crs.project(VIEW_CORE.getNorthEast());
   const cx = (sw.x + ne.x) / 2, cy = (sw.y + ne.y) / 2;
@@ -109,10 +121,16 @@ function showZone(key) {
   zoneLayer = L.layerGroup(items).addTo(map);
 }
 function zoomZone(key) {
-  let b;
-  if (key === "iod") b = [[-12, 48], [12, 112]];
-  else { const z = state.boxes[key]; b = [[z[0] - 6, z[2] - 6], [z[1] + 6, z[3] + 6]]; }
-  map.fitBounds(b, { padding: [30, 30], maxZoom: 5, animate: true });
+  // Center di titik-tengah zona, zoom = MAX(zoom yang memuat kotak, zoom yang bikin center TAK ke-clamp batas data).
+  let clat, clon, halfLat, halfLon;
+  if (key === "iod") { clat = 0; clon = 80; halfLat = 12; halfLon = 32; }   // gabungan 2 kotak IOD
+  else { const z = state.boxes[key]; clat = (z[0] + z[1]) / 2; clon = (z[2] + z[3]) / 2; halfLat = (z[1] - z[0]) / 2 + 6; halfLon = (z[3] - z[2]) / 2 + 6; }
+  const d = state.domain, sz = map.getSize();
+  const eLon = Math.max(2, Math.min(clon - d.lonW, d.lonE - clon));   // jarak ke tepi bujur terdekat
+  const eLat = Math.max(2, Math.min(clat - d.latS, d.latN - clat));
+  const zFit = map.getBoundsZoom([[clat - halfLat, clon - halfLon], [clat + halfLat, clon + halfLon]], false);
+  const zCtr = Math.max(Math.log2(sz.x * 180 / (256 * eLon)), Math.log2(sz.y * 180 / (256 * eLat)));   // setengah-lebar <= jarak tepi
+  map.setView([clat, nlng(clon)], Math.max(2, Math.min(9, Math.max(zFit, zCtr))), { animate: true });
 }
 
 /* ---- Semua zona indeks (toggle): tiap zona diklik -> buka sidebar indeks (= selectIndex) ---- */
@@ -222,21 +240,58 @@ async function updateCurrents() {
 /* ---- Frame ---- */
 function frameTimeLabel(f) {
   if (activeLayer === "clim") return MONTHS_FULL[f.month - 1];
-  if (activeLayer === "anom" || activeLayer === "index" || activeLayer === "current") { const d = f.date; return `${+d.slice(6, 8)} ${MONTHS[+d.slice(4, 6) - 1]} ${d.slice(0, 4)}`; }
+  if (activeLayer === "anom" || activeLayer === "index" || activeLayer === "current" || activeLayer === "sal") { const d = f.date; return `${+d.slice(6, 8)} ${MONTHS[+d.slice(4, 6) - 1]} ${d.slice(0, 4)}`; }
   const w = toWIB(f.valid_time);
   return `${w.getUTCDate()} ${MONTHS[w.getUTCMonth()]}, ${String(w.getUTCHours()).padStart(2, "0")}:00 WIB`;
 }
-function showFrame(i) {
+/* ---- Loading raster: skeleton peta saat ganti parameter, bar tipis saat scrub ----
+   Leaflet imageOverlay.setUrl() menahan gambar LAMA sampai PNG baru selesai; di domain
+   besar ini terasa "beku". Jadi kita tutup dgn skeleton (ganti layer) / bar (scrub frame)
+   sampai <img> raster benar-benar ter-load. */
+let rasterSeq = 0, rasterBarTimer = null;
+const LAYER_NAME = { sst: "Suhu Muka Laut", anom: "Anomali SST", clim: "Klimatologi", current: "Arus Laut", index: "Indeks Iklim", sal: "Salinitas" };
+function hideSkeleton() {
+  const s = $("skeleton");
+  if (!s || s.classList.contains("hide")) return;
+  s.classList.add("hide");                   // fade-out (transition CSS), lalu dilepas
+  setTimeout(() => s.remove(), 500);
+}
+function clearRasterBar() { if (rasterBarTimer) { clearTimeout(rasterBarTimer); rasterBarTimer = null; } $("raster-bar").classList.remove("show"); }
+function trackRaster(full) {
+  const img = overlay && overlay.getElement();
+  const seq = ++rasterSeq;                    // frame terbaru menang; listener frame lama diabaikan
+  const settle = () => {
+    if (seq !== rasterSeq) return;
+    $("map-loading").classList.remove("show");
+    clearRasterBar();
+    hideSkeleton();                           // load-awal: lepas skeleton begitu raster pertama siap
+  };
+  if (!img || (img.complete && img.naturalWidth > 0)) { settle(); return; }   // sudah ter-cache
+  if (full) {
+    $("map-loading-text").textContent = "Memuat " + (LAYER_NAME[activeLayer] || "data") + "…";
+    $("map-loading").classList.add("show");
+  } else {
+    clearRasterBar();
+    rasterBarTimer = setTimeout(() => { if (seq === rasterSeq) $("raster-bar").classList.add("show"); }, 150);   // scrub cepat/ter-cache: jangan flash
+  }
+  img.addEventListener("load", settle, { once: true });
+  img.addEventListener("error", settle, { once: true });
+}
+
+function showFrame(i, opts) {
   frameIdx = Math.max(0, Math.min(frames.length - 1, i));
   const f = frames[frameIdx];
   const d = state.domain;
   let bounds = [[d.latS, d.lonW], [d.latN, d.lonE]];
   if (activeLayer === "current" && state.currents && state.currents.bounds) {
     const cb = state.currents.bounds; bounds = [[cb.latS, cb.lonW], [cb.latN, cb.lonE]];   // grid arus sendiri
+  } else if (activeLayer === "sal" && state.layers.sal && state.layers.sal.bounds) {
+    const sb = state.layers.sal.bounds; bounds = [[sb.latS, sb.lonW], [sb.latN, sb.lonE]];  // grid salinitas Copernicus
   }
   const url = "data/output/" + (f.png || f.spd);   // arus: kontur kecepatan (spd)
   if (overlay) { overlay.setUrl(url); overlay.setBounds(bounds); }
   else overlay = L.imageOverlay(url, bounds, { opacity: 0.9, interactive: false, pane: "sst", className: "sst-overlay" }).addTo(map);
+  trackRaster(opts && opts.layerSwitch);           // ganti layer -> skeleton; scrub/putar -> bar tipis
   $("valid-time").textContent = frameTimeLabel(f);
   $("time-slider").value = frameIdx;
   updateRangeFill();
@@ -249,7 +304,9 @@ function showFrame(i) {
 /* ---- Ganti layer (SST / Anomali / Klimatologi) ---- */
 function setLayer(key) {
   if (key === "current" && (!state.currents || !state.currents.frames || !state.currents.frames.length)) { toast("Data arus belum tersedia"); return; }
+  if (key === "sal" && !(state.layers.sal && state.layers.sal.frames && state.layers.sal.frames.length)) { toast("Data salinitas belum tersedia"); return; }
   activeLayer = key;
+  applyBasemap();   // gelap khusus anom, terang selainnya
   frames = key === "current" ? state.currents.frames : state.layers[FRAME_SRC[key]].frames;
   document.querySelectorAll(".layer-btn").forEach((b) => b.classList.toggle("active", b.dataset.layer === key));
   document.querySelectorAll(".index-opt").forEach((o) => o.classList.remove("active"));   // keluar mode indeks
@@ -259,7 +316,7 @@ function setLayer(key) {
   if (!pointActive) frameRegion();   // titik aktif: jangan reset view biar popup tetap di tempat
   openIndex(false);   // sidebar hanya untuk mode Indeks
   if (pointActive) { if (POINT_PARAM[key]) loadPD(POINT_PARAM[key].pd).then(() => updatePointPopup()); else closePoint(); }
-  showFrame(nowIndex());
+  showFrame(nowIndex(), { layerSwitch: true });
 }
 
 /* ---- Ticks per cadence ---- */
@@ -272,7 +329,7 @@ function buildTicks() {
     const edge = i === 0 ? " edge-start" : (i === n - 1 ? " edge-end" : "");
     let lbl = "", isDay = false;
     if (activeLayer === "clim") { lbl = MONTHS[f.month - 1]; isDay = true; }
-    else if (activeLayer === "anom" || activeLayer === "index" || activeLayer === "current") { lbl = `${+f.date.slice(6, 8)} ${MONTHS[+f.date.slice(4, 6) - 1]}`; isDay = true; }
+    else if (activeLayer === "anom" || activeLayer === "index" || activeLayer === "current" || activeLayer === "sal") { lbl = `${+f.date.slice(6, 8)} ${MONTHS[+f.date.slice(4, 6) - 1]}`; isDay = true; }
     else { const w = toWIB(f.valid_time), day = w.getUTCDate(); isDay = i === 0 || day !== prev; prev = day; lbl = isDay ? `${day} ${MONTHS[w.getUTCMonth()]}` : ""; }
     return `<div class="tl-tick${isDay ? " day" : ""}${edge}" style="left:${pos}%"><span class="tl-tick-mark"></span>${lbl ? `<span class="tl-tick-lbl">${lbl}</span>` : ""}</div>`;
   }).join("");
@@ -489,13 +546,14 @@ function renderIndexPlot() {
 function enterIndexMode() {
   if (activeLayer !== "index") lastLayer = activeLayer;   // ingat layer semula
   activeLayer = "index";
+  applyBasemap();   // mode Indeks pakai basemap terang (bukan anom)
   closePoint();   // mode Indeks ambil alih panel
   frames = state.layers.anom.frames;
   document.querySelectorAll(".layer-btn").forEach((b) => b.classList.remove("active"));
   renderLegend("anom"); buildTicks();
   $("time-slider").max = String(Math.max(0, frames.length - 1));
   openIndex(true);
-  showFrame(nowIndex());
+  showFrame(nowIndex(), { layerSwitch: true });
 }
 function buildIndexPanel() {
   $("pt-badge").textContent = "INDEKS IKLIM";
@@ -556,7 +614,7 @@ function sampleGrid(arr, m, ti, lat, lon, comp) {
   if (fx < -0.5 || fx > nx - 0.5 || fy < -0.5 || fy > ny - 0.5) return null;
   const x0 = Math.max(0, Math.min(nx - 1, Math.floor(fx))), y0 = Math.max(0, Math.min(ny - 1, Math.floor(fy)));
   const x1 = Math.min(x0 + 1, nx - 1), y1 = Math.min(y0 + 1, ny - 1), tx = fx - x0, ty = fy - y0;
-  const g = (x, y) => { const val = arr[base + y * nx + x]; return val === -32768 ? null : val * m.scale; };
+  const g = (x, y) => { const val = arr[base + y * nx + x]; return val <= -32000 ? null : val * m.scale; };   // sentinel NaN (-32768 atau -32767 hasil clip pack_grid)
   const q = [[g(x0, y0), (1 - tx) * (1 - ty)], [g(x1, y0), tx * (1 - ty)], [g(x0, y1), (1 - tx) * ty], [g(x1, y1), tx * ty]];
   let s = 0, w = 0;
   for (const [val, wt] of q) if (val != null) { s += val * wt; w += wt; }
@@ -579,6 +637,7 @@ const POINT_PARAM = {
   anom:    { pd: "anom", label: "Anomali SST",    unit: "°C",  color: "#e8590c", signed: true },
   current: { pd: "cur",  label: "Arus Laut",      unit: "m/s", color: "#0d9488", signed: false, vector: true },
   clim:    { pd: "clim", label: "Klimatologi SST", unit: "°C", color: "#2b8a9e", signed: false },
+  sal:     { pd: "sal",  label: "Salinitas",      unit: "PSU", color: "#1b9e8a", signed: false },
 };
 function ptXlabel(f) {
   if (!f) return "";
@@ -705,6 +764,7 @@ function togglePlay() {
 $("play-btn").addEventListener("click", togglePlay);
 document.querySelectorAll(".layer-btn").forEach((b) => b.addEventListener("click", () => setLayer(b.dataset.layer)));
 $("index-toggle").addEventListener("click", (e) => e.currentTarget.parentElement.classList.toggle("open"));
+$("model-toggle").addEventListener("click", (e) => e.currentTarget.parentElement.classList.toggle("open"));
 document.querySelectorAll(".index-opt").forEach((b) => b.addEventListener("click", () => {
   if (activeLayer === "index" && selectedIndex === b.dataset.ix) exitIndexMode();   // pencet lagi = matikan
   else selectIndex(b.dataset.ix);
@@ -760,9 +820,10 @@ fetch(DATA, { cache: "no-store" }).then((r) => r.json()).then((doc) => {
   // Darat = basemap OSM (dipasang di atas, lapisan "basemap"); data laut transparan tepat di pantai.
   if (state.currents && state.currents.label) $("cur-model-opt").textContent = state.currents.label;
   document.querySelector('.layer-btn[data-layer="current"]').classList.toggle("disabled", !(state.currents && state.currents.frames && state.currents.frames.length));
+  document.querySelector('.layer-btn[data-layer="sal"]').classList.toggle("disabled", !(state.layers.sal && state.layers.sal.frames && state.layers.sal.frames.length));
   setLayer("sst");   // mulai di SST; panel indeks dibangun saat pilih dari dropdown
   frameRegion();
   map.on("resize", frameRegion);
   if (state.run) { const w = toWIB(state.run); $("fresh-text").textContent = `Update: ${String(w.getUTCHours()).padStart(2, "0")}:00 WIB, ${w.getUTCDate()} ${MONTHS[w.getUTCMonth()]}`; }
   $("loading").style.display = "none";
-}).catch((err) => { $("loading").textContent = "Gagal memuat data: " + err; console.error(err); });
+}).catch((err) => { hideSkeleton(); $("loading").style.display = "block"; $("loading").textContent = "Gagal memuat data: " + err; console.error(err); });

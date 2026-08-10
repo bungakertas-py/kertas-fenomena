@@ -18,6 +18,26 @@
   <div id="stage">
     <div id="map"></div>
 
+    <!-- Loading peta saat ganti parameter / frame (raster domain besar): skeleton
+         menutup raster lama, kontrol tetap di atas. Bar tipis untuk scrub/putar. -->
+    <div id="map-loading" aria-hidden="true">
+      <div class="sk-bar ml-fill"></div>
+      <div class="ml-center">
+        <svg class="sk-mark" viewBox="0 0 48 48" width="54" height="54" aria-hidden="true">
+          <g transform="translate(24 26.5) scale(0.88)" stroke="#1c1b1b" stroke-width="2" stroke-linejoin="round">
+            <g fill="#e64980">
+              <ellipse cx="0" cy="-12" rx="8.5" ry="12"/>
+              <ellipse cx="0" cy="-12" rx="8.5" ry="12" transform="rotate(120)"/>
+              <ellipse cx="0" cy="-12" rx="8.5" ry="12" transform="rotate(240)"/>
+            </g>
+            <circle r="4.5" fill="#ffd43b"/>
+          </g>
+        </svg>
+        <div class="sk-load-text" id="map-loading-text">Memuat data…</div>
+      </div>
+    </div>
+    <div id="raster-bar" aria-hidden="true"><span></span></div>
+
     <div id="ui">
       <!-- ============ TOP ============ -->
       <div class="ui-top">
@@ -61,6 +81,9 @@
               <button class="layer-btn" data-layer="current" data-tip="Arus Laut">
                 <span class="material-symbols-outlined">waves</span> <span class="lb-txt">Arus Laut</span>
               </button>
+              <button class="layer-btn" data-layer="sal" data-tip="Salinitas Permukaan">
+                <span class="material-symbols-outlined">water_drop</span> <span class="lb-txt">Salinitas</span>
+              </button>
             </div>
             <button id="layer-next" class="layer-nav" aria-label="Parameter berikutnya"><span class="material-symbols-outlined">chevron_right</span></button>
           </div>
@@ -100,26 +123,29 @@
           <button id="share-btn" class="icon-btn" aria-label="Bagikan tampilan ini" data-tip="Bagikan"><span class="material-symbols-outlined">share</span></button>
           <button id="fs-btn" class="icon-btn" aria-label="Layar penuh" data-tip="Layar Penuh"><span class="material-symbols-outlined">fullscreen</span></button>
 
-          <div class="panel selects">
-            <div class="field">
-              <div class="label-caps">MODEL</div>
-              <div class="select-wrap">
-                <select id="model-select"><option>GFS (NOAA)</option></select>
-                <span class="material-symbols-outlined">arrow_drop_down</span>
+          <div class="model-wrap">
+            <button id="model-toggle" class="icon-btn" aria-label="Model & sumber data" data-tip="Model & Sumber"><span class="material-symbols-outlined">tune</span></button>
+            <div class="panel selects">
+              <div class="field">
+                <div class="label-caps">MODEL</div>
+                <div class="select-wrap">
+                  <select id="model-select"><option>GFS (NOAA)</option></select>
+                  <span class="material-symbols-outlined">arrow_drop_down</span>
+                </div>
               </div>
-            </div>
-            <div class="field">
-              <div class="label-caps">KLIMATOLOGI</div>
-              <div class="select-wrap">
-                <select id="clim-select" disabled><option>COBE-SST2 1991-2020</option></select>
-                <span class="material-symbols-outlined">arrow_drop_down</span>
+              <div class="field">
+                <div class="label-caps">KLIMATOLOGI</div>
+                <div class="select-wrap">
+                  <select id="clim-select" disabled><option>COBE-SST2 1991-2020</option></select>
+                  <span class="material-symbols-outlined">arrow_drop_down</span>
+                </div>
               </div>
-            </div>
-            <div class="field">
-              <div class="label-caps">MODEL ARUS</div>
-              <div class="select-wrap">
-                <select id="cur-model-select" disabled><option id="cur-model-opt">Copernicus (CMEMS)</option></select>
-                <span class="material-symbols-outlined">arrow_drop_down</span>
+              <div class="field">
+                <div class="label-caps">MODEL ARUS</div>
+                <div class="select-wrap">
+                  <select id="cur-model-select" disabled><option id="cur-model-opt">Copernicus (CMEMS)</option></select>
+                  <span class="material-symbols-outlined">arrow_drop_down</span>
+                </div>
               </div>
             </div>
           </div>
@@ -166,6 +192,51 @@
           <p class="about-intro">Hi, I'm Farras Ghaly. I built Kertas Fenomena to turn free climate models into an ocean monitor anyone can actually read.</p>
           <div class="about-quote">"vibe coded this, don't ask me how it works"</div>
         </div>
+      </div>
+    </div>
+
+    <!-- Skeleton load-awal (menutup seluruh layar sampai raster pertama siap) -->
+    <div id="skeleton" aria-hidden="true">
+      <div class="sk-top">
+        <div class="sk-col">
+          <div class="sk-panel sk-brand">
+            <div class="sk-bar sk-logo"></div>
+            <div class="sk-lines">
+              <div class="sk-bar sk-line-lg"></div>
+              <div class="sk-bar sk-line-sm"></div>
+            </div>
+          </div>
+          <div class="sk-panel sk-layers">
+            <div class="sk-bar"></div><div class="sk-bar"></div>
+            <div class="sk-bar"></div><div class="sk-bar"></div>
+          </div>
+          <div class="sk-panel sk-selects">
+            <div class="sk-bar"></div><div class="sk-bar"></div>
+          </div>
+        </div>
+        <div class="sk-col sk-right">
+          <div class="sk-bar sk-mini"></div>
+          <div class="sk-bar sk-mini"></div>
+          <div class="sk-bar sk-mini"></div>
+          <div class="sk-bar sk-mini"></div>
+        </div>
+      </div>
+      <div class="sk-bottom">
+        <div class="sk-bar sk-slider"></div>
+        <div class="sk-bar sk-legend"></div>
+      </div>
+      <div class="sk-center">
+        <svg class="sk-mark" viewBox="0 0 48 48" width="60" height="60" aria-hidden="true">
+          <g transform="translate(24 26.5) scale(0.88)" stroke="#1c1b1b" stroke-width="2" stroke-linejoin="round">
+            <g fill="#e64980">
+              <ellipse cx="0" cy="-12" rx="8.5" ry="12"/>
+              <ellipse cx="0" cy="-12" rx="8.5" ry="12" transform="rotate(120)"/>
+              <ellipse cx="0" cy="-12" rx="8.5" ry="12" transform="rotate(240)"/>
+            </g>
+            <circle r="4.5" fill="#ffd43b"/>
+          </g>
+        </svg>
+        <div class="sk-load-text">Memuat data iklim…</div>
       </div>
     </div>
 

@@ -71,6 +71,14 @@ CURRENTS = {
     "vec_stride": 3,   # partikel velocity: ~0.25 deg (demi performa animasi leaflet-velocity)
     "label": "Copernicus (CMEMS)",
 }
+# --- Salinitas permukaan FORECAST (Copernicus Marine, produk PHY yg sama, variabel `so`) ---
+# Login copernicusmarine yg sama dgn arus. Permukaan (0..1 m), harian analisis+forecast.
+SALINITY = {
+    "dataset": "cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m",
+    "vars": ["so"],
+    "label": "Copernicus (CMEMS)",
+}
+SAL_MIN, SAL_MAX = 30.0, 38.0   # salinitas permukaan PSU (colormap haline)
 # Kontur kecepatan arus & point_data = resolusi ASLI (tanpa downsample).
 
 # --- Ambang status ---
