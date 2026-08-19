@@ -74,37 +74,41 @@
             </a>
           </div>
 
-          <div class="layer-bar">
-            <button id="param-toggle" class="param-toggle" aria-label="Parameter iklim">
-              <span class="material-symbols-outlined param-ico">tune</span>
-              <span class="param-lbl">Parameter</span>
-              <span class="material-symbols-outlined param-caret">expand_more</span>
-            </button>
-            <button id="layer-prev" class="layer-nav" aria-label="Parameter sebelumnya"><span class="material-symbols-outlined">chevron_left</span></button>
-            <div class="panel layers">
-              <button class="layer-btn active" data-layer="sst" data-tip="Suhu Laut (permukaan & kedalaman)">
-                <span class="material-symbols-outlined">thermostat</span> <span class="lb-txt">Suhu Laut</span>
+          <div class="param-row">
+            <div class="layer-bar">
+              <button id="param-toggle" class="param-toggle" aria-label="Parameter iklim">
+                <span class="material-symbols-outlined param-ico">tune</span>
+                <span class="param-lbl">Parameter</span>
+                <span class="material-symbols-outlined param-caret">expand_more</span>
               </button>
-              <button class="layer-btn" data-layer="anom" data-tip="Anomali SST">
-                <span class="material-symbols-outlined">trending_up</span> <span class="lb-txt">Anomali SST</span>
-              </button>
-              <button class="layer-btn" data-layer="clim" data-tip="Klimatologi SST">
-                <span class="material-symbols-outlined">calendar_month</span> <span class="lb-txt">Klimatologi SST</span>
-              </button>
-              <button class="layer-btn" data-layer="current" data-tip="Arus Laut">
-                <span class="material-symbols-outlined">waves</span> <span class="lb-txt">Arus Laut</span>
-              </button>
-              <button class="layer-btn" data-layer="sal" data-tip="Salinitas Permukaan">
-                <span class="material-symbols-outlined">water_drop</span> <span class="lb-txt">Salinitas</span>
-              </button>
+              <button id="layer-prev" class="layer-nav" aria-label="Parameter sebelumnya"><span class="material-symbols-outlined">chevron_left</span></button>
+              <div class="panel layers">
+                <button class="layer-btn active" data-layer="sst" data-tip="Suhu Laut (permukaan & kedalaman)">
+                  <span class="material-symbols-outlined">thermostat</span> <span class="lb-txt">Suhu Laut</span>
+                </button>
+                <button class="layer-btn" data-layer="anom" data-tip="Anomali SST">
+                  <span class="material-symbols-outlined">trending_up</span> <span class="lb-txt">Anomali SST</span>
+                </button>
+                <button class="layer-btn" data-layer="clim" data-tip="Klimatologi SST">
+                  <span class="material-symbols-outlined">calendar_month</span> <span class="lb-txt">Klimatologi SST</span>
+                </button>
+                <button class="layer-btn" data-layer="current" data-tip="Arus Laut">
+                  <span class="material-symbols-outlined">waves</span> <span class="lb-txt">Arus Laut</span>
+                </button>
+                <button class="layer-btn" data-layer="sal" data-tip="Salinitas Permukaan">
+                  <span class="material-symbols-outlined">water_drop</span> <span class="lb-txt">Salinitas</span>
+                </button>
+              </div>
+              <button id="layer-next" class="layer-nav" aria-label="Parameter berikutnya"><span class="material-symbols-outlined">chevron_right</span></button>
             </div>
-            <button id="layer-next" class="layer-nav" aria-label="Parameter berikutnya"><span class="material-symbols-outlined">chevron_right</span></button>
-          </div>
 
-          <!-- Pemilih kedalaman (hanya saat layer Suhu Bawah Permukaan) -->
-          <div id="depth-bar" class="depth-bar panel" hidden>
-            <span class="label-caps">Kedalaman</span>
-            <div class="depth-pills" id="depth-pills"></div>
+            <!-- Pemilih kedalaman (Suhu Laut & Arus): slider VERTIKAL di samping Parameter -->
+            <div id="depth-bar" class="depth-bar" hidden>
+              <div class="depth-slide">
+                <input type="range" id="depth-range" min="0" max="0" step="1" value="0" aria-label="Kedalaman laut" />
+              </div>
+              <div class="depth-ticks" id="depth-ticks"></div>
+            </div>
           </div>
 
           <div class="index-bar">
@@ -123,15 +127,6 @@
             </div>
           </div>
 
-          <!-- Ringkasan awam otomatis: kondisi ENSO/IOD kini + kecenderungan untuk Indonesia -->
-          <div id="climate-brief" class="panel brief-card" hidden>
-            <div class="brief-head">
-              <span class="label-caps">Kondisi Iklim Kini</span>
-              <button id="brief-close" class="brief-close" aria-label="Tutup ringkasan"><span class="material-symbols-outlined">close</span></button>
-            </div>
-            <div class="brief-chips" id="brief-chips"></div>
-            <p class="brief-text" id="brief-text"></p>
-          </div>
         </div>
 
         <!-- kanan: lang + zoom + kontrol -->
@@ -200,6 +195,16 @@
         </div>
 
         <div class="legend-col">
+          <!-- Ringkasan awam otomatis: kondisi ENSO/IOD kini + kecenderungan untuk Indonesia.
+               Mengambang di ATAS legenda (position absolute) supaya bar legenda tidak terdorong naik. -->
+          <div id="climate-brief" class="panel brief-card" hidden>
+            <div class="brief-head">
+              <span class="label-caps">Kondisi Iklim Kini</span>
+              <button id="brief-close" class="brief-close" aria-label="Tutup ringkasan"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <div class="brief-chips" id="brief-chips"></div>
+            <p class="brief-text" id="brief-text"></p>
+          </div>
           <div class="legend-panel">
             <div class="legend-head mono" id="legend-head">°C</div>
             <div class="legend" id="legend-cells"></div>

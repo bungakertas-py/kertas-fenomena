@@ -350,16 +350,43 @@ function setLayer(key) {
   showFrame(nowIndex(), { layerSwitch: true });
 }
 
-/* ---- Pemilih kedalaman (Suhu Laut & Arus): Permukaan + lapisan bawah ---- */
+/* ---- Pemilih kedalaman (Suhu Laut & Arus): slider VERTIKAL, permukaan di ATAS.
+   Slider = input range yang diputar 90 derajat lewat CSS. Label tiap kedalaman
+   punya kotak sendiri, ditaruh sejajar takiknya, dan tetap bisa diklik. ---- */
 function updateDepthBar() {
-  const on = hasDepth();
-  $("depth-bar").hidden = !on;
-  if (!on) return;
-  const labels = depthLabels();
-  $("depth-pills").innerHTML = labels.map((lb, i) =>
-    `<button class="depth-pill${i === selectedDepth ? " active" : ""}" data-depth="${i}">${lb}</button>`).join("");
-  $("depth-pills").querySelectorAll(".depth-pill").forEach((b) =>
+  const labels = hasDepth() ? depthLabels() : [], n = labels.length;
+  // Cuma satu pilihan berarti tak ada yang bisa dipilih, slidernya disembunyikan
+  // saja daripada tampil sendirian dalam keadaan mati.
+  $("depth-bar").hidden = n <= 1;
+  if (n <= 1) return;
+  syncDepthHeight();
+  const rng = $("depth-range");
+  rng.max = String(n - 1);
+  rng.value = String(selectedDepth);
+  $("depth-ticks").innerHTML = labels.map((lb, i) => {
+    // Thumb slider tak pernah menyentuh ujung, selalu masuk setengah lebarnya
+    // (8px dari 16px). Posisi label ikut dikurangi segitu biar benar-benar sejajar.
+    const frac = n === 1 ? 0 : i / (n - 1);
+    const pos = `calc(8px + (100% - 16px) * ${frac.toFixed(4)})`;
+    const short = lb.split(" / ")[0];   // "Permukaan / SST" -> "Permukaan"
+    return `<button type="button" class="depth-tick${i === selectedDepth ? " active" : ""}"` +
+      ` data-depth="${i}" style="top:${pos}" title="${lb}">${short}</button>`;
+  }).join("");
+  $("depth-ticks").querySelectorAll(".depth-tick").forEach((b) =>
     b.addEventListener("click", () => setDepth(+b.dataset.depth)));
+}
+
+/* Panjang slider disamakan dengan tinggi panel Parameter di sebelah kiri.
+   Harus diukur di JS karena elemen range diputar 90 derajat, jadi yang tampak
+   sebagai tinggi sebenarnya lebar, dan lebar butuh angka pasti. Di lebar HP
+   dilepas supaya nilai dari CSS yang dipakai, sebab panel Parameter di sana
+   menciut jadi satu tombol saja. */
+function syncDepthHeight() {
+  const bar = $("depth-bar"), ref = document.querySelector(".layer-bar");
+  if (!bar || !ref) return;
+  if (window.innerWidth <= 640) { bar.style.removeProperty("--depth-h"); return; }
+  const h = Math.round(ref.getBoundingClientRect().height);
+  if (h > 0) bar.style.setProperty("--depth-h", h + "px");
 }
 function setDepth(i) {
   if (i === selectedDepth) return;
@@ -828,6 +855,9 @@ function updateRangeFill() {
 }
 function afterFrame() { if (activeLayer === "index") { renderIndexDetail(); renderIndexPlot(); } }
 $("time-slider").addEventListener("input", (e) => { if (playing) togglePlay(); showFrame(+e.target.value); afterFrame(); });
+$("depth-range").addEventListener("input", (e) => setDepth(+e.target.value));
+window.addEventListener("resize", syncDepthHeight);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncDepthHeight);
 function togglePlay() {
   playing = !playing;
   $("play-icon").textContent = playing ? "pause" : "play_arrow";
