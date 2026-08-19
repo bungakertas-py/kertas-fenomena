@@ -7,7 +7,6 @@ Bind ke 127.0.0.1 saja (HP tidak bisa akses). Untuk uji HP satu WiFi,
 pakai server LAN terpisah yang bind 0.0.0.0 (lihat kertas-cuaca/scratchpad).
 """
 import http.server
-import socketserver
 import os
 
 PORT = 8000
@@ -27,7 +26,10 @@ class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     os.chdir(ROOT)
-    with socketserver.TCPServer(("127.0.0.1", PORT), NoCacheHandler) as httpd:
+    # ThreadingHTTPServer, bukan TCPServer biasa. TCPServer melayani SATU
+    # permintaan pada satu waktu, jadi puluhan berkas frame ngantre satu-satu
+    # dan halaman terasa lama sekali dibuka.
+    with http.server.ThreadingHTTPServer(("127.0.0.1", PORT), NoCacheHandler) as httpd:
         print(f"Kertas Fenomena dev server: http://127.0.0.1:{PORT}/frontend/index.html")
         try:
             httpd.serve_forever()
