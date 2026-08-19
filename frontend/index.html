@@ -74,41 +74,42 @@
             </a>
           </div>
 
-          <div class="param-row">
-            <div class="layer-bar">
-              <button id="param-toggle" class="param-toggle" aria-label="Parameter iklim">
-                <span class="material-symbols-outlined param-ico">tune</span>
-                <span class="param-lbl">Parameter</span>
-                <span class="material-symbols-outlined param-caret">expand_more</span>
+          <div class="layer-bar">
+            <button id="param-toggle" class="param-toggle" aria-label="Parameter iklim">
+              <span class="material-symbols-outlined param-ico">tune</span>
+              <span class="param-lbl">Parameter</span>
+              <span class="material-symbols-outlined param-caret">expand_more</span>
+            </button>
+            <button id="layer-prev" class="layer-nav" aria-label="Parameter sebelumnya"><span class="material-symbols-outlined">chevron_left</span></button>
+            <div class="panel layers">
+              <button class="layer-btn active" data-layer="sst" data-tip="Suhu Laut (permukaan & kedalaman)">
+                <span class="material-symbols-outlined">thermostat</span> <span class="lb-txt">Suhu Laut</span>
               </button>
-              <button id="layer-prev" class="layer-nav" aria-label="Parameter sebelumnya"><span class="material-symbols-outlined">chevron_left</span></button>
-              <div class="panel layers">
-                <button class="layer-btn active" data-layer="sst" data-tip="Suhu Laut (permukaan & kedalaman)">
-                  <span class="material-symbols-outlined">thermostat</span> <span class="lb-txt">Suhu Laut</span>
-                </button>
-                <button class="layer-btn" data-layer="anom" data-tip="Anomali SST">
-                  <span class="material-symbols-outlined">trending_up</span> <span class="lb-txt">Anomali SST</span>
-                </button>
-                <button class="layer-btn" data-layer="clim" data-tip="Klimatologi SST">
-                  <span class="material-symbols-outlined">calendar_month</span> <span class="lb-txt">Klimatologi SST</span>
-                </button>
-                <button class="layer-btn" data-layer="current" data-tip="Arus Laut">
-                  <span class="material-symbols-outlined">waves</span> <span class="lb-txt">Arus Laut</span>
-                </button>
-                <button class="layer-btn" data-layer="sal" data-tip="Salinitas Permukaan">
-                  <span class="material-symbols-outlined">water_drop</span> <span class="lb-txt">Salinitas</span>
-                </button>
-              </div>
-              <button id="layer-next" class="layer-nav" aria-label="Parameter berikutnya"><span class="material-symbols-outlined">chevron_right</span></button>
+              <button class="layer-btn" data-layer="anom" data-tip="Anomali SST">
+                <span class="material-symbols-outlined">trending_up</span> <span class="lb-txt">Anomali SST</span>
+              </button>
+              <button class="layer-btn" data-layer="clim" data-tip="Klimatologi SST">
+                <span class="material-symbols-outlined">calendar_month</span> <span class="lb-txt">Klimatologi SST</span>
+              </button>
+              <button class="layer-btn" data-layer="current" data-tip="Arus Laut">
+                <span class="material-symbols-outlined">waves</span> <span class="lb-txt">Arus Laut</span>
+              </button>
+              <button class="layer-btn" data-layer="sal" data-tip="Salinitas Permukaan">
+                <span class="material-symbols-outlined">water_drop</span> <span class="lb-txt">Salinitas</span>
+              </button>
             </div>
+            <button id="layer-next" class="layer-nav" aria-label="Parameter berikutnya"><span class="material-symbols-outlined">chevron_right</span></button>
+          </div>
 
-            <!-- Pemilih kedalaman (Suhu Laut & Arus): slider VERTIKAL di samping Parameter -->
-            <div id="depth-bar" class="depth-bar" hidden>
-              <div class="depth-slide">
-                <input type="range" id="depth-range" min="0" max="0" step="1" value="0" aria-label="Kedalaman laut" />
-              </div>
-              <div class="depth-ticks" id="depth-ticks"></div>
-            </div>
+          <!-- Pemilih kedalaman (Suhu Laut & Arus): tombol bercaret, isinya deret horizontal -->
+          <div id="depth-bar" class="depth-bar" hidden>
+            <button id="depth-toggle" class="panel depth-toggle" aria-label="Pilih kedalaman">
+              <span class="material-symbols-outlined depth-ico">height</span>
+              <span class="depth-lbl">Kedalaman</span>
+              <span class="depth-cur mono" id="depth-cur"></span>
+              <span class="material-symbols-outlined depth-caret">expand_more</span>
+            </button>
+            <div class="panel depth-menu" id="depth-menu"></div>
           </div>
 
           <div class="index-bar">

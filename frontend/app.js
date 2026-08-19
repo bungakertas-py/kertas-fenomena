@@ -321,9 +321,15 @@ function curFramesForDepth(d) {
   return (state.currents.depth_frames && state.currents.depth_frames[String(d)]) || state.currents.frames;
 }
 function framesForDepth(d) { return activeLayer === "current" ? curFramesForDepth(d) : tempFramesForDepth(d); }
+const SURFACE_LABEL = "0 m";   // dulu "Permukaan", disamakan bentuknya dengan 50 m dst
 function depthLabels() {
-  if (activeLayer === "current") return (state.currents && state.currents.depth_labels) || ["Permukaan"];
-  if (activeLayer === "sst") return ["Permukaan / SST", ...((state.layers.subt && state.layers.subt.depth_labels) || [])];
+  // Label kedalaman 0 dinormalkan di sini juga, biar climate.json lama yang
+  // masih menulis "Permukaan" tetap tampil seragam.
+  if (activeLayer === "current") {
+    const d = (state.currents && state.currents.depth_labels) || [SURFACE_LABEL];
+    return d.map((lb, i) => (i === 0 ? SURFACE_LABEL : lb));
+  }
+  if (activeLayer === "sst") return [SURFACE_LABEL, ...((state.layers.subt && state.layers.subt.depth_labels) || [])];
   return [];
 }
 function hasDepth() { return activeLayer === "sst" || activeLayer === "current"; }
@@ -350,44 +356,23 @@ function setLayer(key) {
   showFrame(nowIndex(), { layerSwitch: true });
 }
 
-/* ---- Pemilih kedalaman (Suhu Laut & Arus): slider VERTIKAL, permukaan di ATAS.
-   Slider = input range yang diputar 90 derajat lewat CSS. Label tiap kedalaman
-   punya kotak sendiri, ditaruh sejajar takiknya, dan tetap bisa diklik. ---- */
+/* ---- Pemilih kedalaman (Suhu Laut & Arus): tombol bercaret, isinya deret
+   pilihan MENDATAR. Nilai yang sedang dipakai ikut ditulis di tombol supaya
+   tetap terbaca walau menunya tertutup. ---- */
 function updateDepthBar() {
   const labels = hasDepth() ? depthLabels() : [], n = labels.length;
-  // Cuma satu pilihan berarti tak ada yang bisa dipilih, slidernya disembunyikan
-  // saja daripada tampil sendirian dalam keadaan mati.
+  // Cuma satu pilihan berarti tak ada yang bisa dipilih, pemilihnya disembunyikan.
   $("depth-bar").hidden = n <= 1;
-  if (n <= 1) return;
-  syncDepthHeight();
-  const rng = $("depth-range");
-  rng.max = String(n - 1);
-  rng.value = String(selectedDepth);
-  $("depth-ticks").innerHTML = labels.map((lb, i) => {
-    // Thumb slider tak pernah menyentuh ujung, selalu masuk setengah lebarnya
-    // (8px dari 16px). Posisi label ikut dikurangi segitu biar benar-benar sejajar.
-    const frac = n === 1 ? 0 : i / (n - 1);
-    const pos = `calc(8px + (100% - 16px) * ${frac.toFixed(4)})`;
-    const short = lb.split(" / ")[0];   // "Permukaan / SST" -> "Permukaan"
-    return `<button type="button" class="depth-tick${i === selectedDepth ? " active" : ""}"` +
-      ` data-depth="${i}" style="top:${pos}" title="${lb}">${short}</button>`;
-  }).join("");
-  $("depth-ticks").querySelectorAll(".depth-tick").forEach((b) =>
+  if (n <= 1) { $("depth-bar").classList.remove("open"); return; }
+  const short = (lb) => lb.split(" / ")[0];   // "Permukaan / SST" -> "Permukaan"
+  $("depth-cur").textContent = short(labels[selectedDepth] || labels[0]);
+  $("depth-menu").innerHTML = labels.map((lb, i) =>
+    `<button type="button" class="depth-opt${i === selectedDepth ? " active" : ""}"` +
+    ` data-depth="${i}" title="${lb}">${short(lb)}</button>`).join("");
+  $("depth-menu").querySelectorAll(".depth-opt").forEach((b) =>
     b.addEventListener("click", () => setDepth(+b.dataset.depth)));
 }
 
-/* Panjang slider disamakan dengan tinggi panel Parameter di sebelah kiri.
-   Harus diukur di JS karena elemen range diputar 90 derajat, jadi yang tampak
-   sebagai tinggi sebenarnya lebar, dan lebar butuh angka pasti. Di lebar HP
-   dilepas supaya nilai dari CSS yang dipakai, sebab panel Parameter di sana
-   menciut jadi satu tombol saja. */
-function syncDepthHeight() {
-  const bar = $("depth-bar"), ref = document.querySelector(".layer-bar");
-  if (!bar || !ref) return;
-  if (window.innerWidth <= 640) { bar.style.removeProperty("--depth-h"); return; }
-  const h = Math.round(ref.getBoundingClientRect().height);
-  if (h > 0) bar.style.setProperty("--depth-h", h + "px");
-}
 function setDepth(i) {
   if (i === selectedDepth) return;
   selectedDepth = i;
@@ -855,9 +840,7 @@ function updateRangeFill() {
 }
 function afterFrame() { if (activeLayer === "index") { renderIndexDetail(); renderIndexPlot(); } }
 $("time-slider").addEventListener("input", (e) => { if (playing) togglePlay(); showFrame(+e.target.value); afterFrame(); });
-$("depth-range").addEventListener("input", (e) => setDepth(+e.target.value));
-window.addEventListener("resize", syncDepthHeight);
-if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncDepthHeight);
+$("depth-toggle").addEventListener("click", (e) => e.currentTarget.parentElement.classList.toggle("open"));
 function togglePlay() {
   playing = !playing;
   $("play-icon").textContent = playing ? "pause" : "play_arrow";

@@ -155,14 +155,14 @@ def main():
         clat, clon = cur_native["lat"], cur_native["lon"]
         cb = _edge_bounds(float(clon[0]), float(clon[-1]), float(clat[0]), float(clat[-1]), len(clon), len(clat))
         currents = {"label": C.CURRENTS["label"], "cadence": "1h", "frames": surf_frames,
-                    "depth_labels": ["Permukaan"], "depth_frames": {},
+                    "depth_labels": ["0 m"], "depth_frames": {},
                     "bounds": {"lonW": cb[0], "lonE": cb[1], "latN": cb[2], "latS": cb[3]}}
         print(f"  arus permukaan per-jam: {len(surf_frames)} frame")
         try:   # lapisan bawah HARIAN (P1D cur di 50/100/200 m)
             cnc = os.path.join(tempfile.gettempdir(), "kf_currents.nc")
             download.download_currents(s_iso, e_iso, cnc)
             cd = process.currents_depth(cnc, C.OUT_DIR, ref_iso)
-            currents["depth_labels"] = ["Permukaan"] + cd["depth_labels"]
+            currents["depth_labels"] = ["0 m"] + cd["depth_labels"]
             currents["depth_frames"] = cd["frames"]
             print(f"  arus kedalaman: {len(cd['depth_labels'])} lapisan (level {cd['depth_used']} m)")
         except Exception as e:

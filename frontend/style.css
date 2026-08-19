@@ -714,42 +714,31 @@ html, body {
 .brief-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .brief-text { font-family: var(--font-ui); font-size: 11.5px; line-height: 1.45; color: var(--ink); }
 
-/* ---- Pemilih kedalaman (Suhu Laut & Arus): slider VERTIKAL di samping Parameter ----
-   Tanpa panel pembungkus. Yang berkotak putih hanya label tiap kedalaman.
-   Slidernya input range biasa yang DIPUTAR 90 derajat, jadi nilai terkecil
-   (permukaan) ada di ATAS dan makin ke bawah makin dalam. Cara ini dipilih
-   daripada writing-mode vertical karena perilakunya seragam di semua browser.
-   Panjang slider = tinggi panel Parameter, diukur JS lalu ditaruh di --depth-h. */
-.param-row { display: flex; align-items: flex-start; gap: 12px; }
-.depth-bar { --depth-h: 168px; display: flex; gap: 10px; pointer-events: auto; }
+/* ---- Pemilih kedalaman (Suhu Laut & Arus) ----
+   Tombol bercaret seperti Indeks Iklim, isinya deret pilihan MENDATAR.
+   Lebar tombol disamakan dengan panel Parameter di atasnya (224px). */
+.depth-bar { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .depth-bar[hidden] { display: none; }
-.depth-slide { position: relative; width: 20px; height: var(--depth-h); flex: none; }
-#depth-range {
-  -webkit-appearance: none; appearance: none;
-  position: absolute; top: 50%; left: 50%; margin: 0;
-  width: var(--depth-h); height: 6px; background: transparent; cursor: pointer;
-  transform: translate(-50%, -50%) rotate(90deg);   /* min di ATAS = permukaan */
-}
-#depth-range:disabled { cursor: default; opacity: .5; }
-#depth-range::-webkit-slider-runnable-track { height: 6px; background: var(--surface-highest); border: 2px solid var(--ink); }
-#depth-range::-moz-range-track { height: 6px; background: var(--surface-highest); border: 2px solid var(--ink); }
-#depth-range::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin-top: -7px;
-  background: var(--lime); border: 2px solid var(--ink); border-radius: 0;
-}
-#depth-range::-moz-range-thumb {
-  width: 16px; height: 16px; background: var(--lime); border: 2px solid var(--ink); border-radius: 0;
-}
-/* Label tiap kedalaman: kotak putih sendiri-sendiri, sejajar takik slider, bisa diklik. */
-.depth-ticks { position: relative; height: var(--depth-h); min-width: 78px; }
-.depth-tick {
-  position: absolute; left: 0; transform: translateY(-50%);
-  padding: 5px 10px; cursor: pointer; white-space: nowrap;
-  font-family: var(--font-mono); font-size: 11px; color: var(--ink);
-  background: var(--surface); border: 2px solid var(--ink); box-shadow: 2px 2px 0 0 var(--ink);
-}
-.depth-tick:hover { background: var(--surface-high); }
-.depth-tick.active { background: var(--lime); color: var(--on-lime); }
+.depth-toggle { display: flex; align-items: center; gap: 10px;
+  width: max-content; min-width: 224px; padding: 11px 16px;
+  background: var(--surface); color: var(--ink); cursor: pointer; text-align: left;
+  font-family: var(--font-ui); font-weight: 700; font-size: 15px; text-transform: uppercase; }
+.depth-toggle .depth-ico { color: var(--primary); font-size: 21px; }
+.depth-toggle .depth-lbl { flex: none; }
+/* Nilai yang sedang dipakai, tetap terbaca walau menu tertutup */
+.depth-cur { flex: none; margin-left: auto; text-align: right; font-size: 11px; font-weight: 500;
+  color: var(--variant); text-transform: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.depth-caret { flex: none; font-size: 22px; color: var(--variant); transition: transform .15s ease; }
+.depth-bar.open .depth-caret { transform: rotate(180deg); }
+.depth-menu { display: none; flex-direction: row; width: max-content; max-width: 100%; }
+.depth-bar.open .depth-menu { display: flex; }
+.depth-opt { display: flex; align-items: center; justify-content: center; padding: 9px 14px;
+  background: var(--surface); color: var(--ink); border: none;
+  border-right: var(--bw) solid var(--ink); cursor: pointer; white-space: nowrap;
+  font-family: var(--font-mono); font-weight: 700; font-size: 12px; transition: background .12s; }
+.depth-opt:last-child { border-right: none; }
+.depth-opt:hover:not(.active) { background: var(--surface-high); }
+.depth-opt.active { background: var(--lime); color: var(--on-lime); }
 
 /* Kartu Tentang (modal) */
 .about-overlay { position: fixed; inset: 0; z-index: 3000; display: none; align-items: center; justify-content: center;
@@ -903,13 +892,15 @@ html, body {
   .layer-bar.param-open .param-caret { transform: rotate(180deg); }
   .layer-nav { display: none; }   /* buang panah carousel lama */
 
-  /* Slider kedalaman tetap di samping Parameter, cuma dipendekkan.
-     Panjangnya dipatok di sini, JS sengaja tidak mengukur di lebar HP karena
-     panel Parameter menciut jadi satu tombol saja. */
-  .param-row { gap: 8px; }
-  .depth-bar { --depth-h: 132px; gap: 8px; }
-  .depth-ticks { min-width: 70px; }
-  .depth-tick { font-size: 10px; padding: 4px 8px; }
+  /* Kedalaman di HP: tombol seukuran tombol Parameter, deret pilihan tetap
+     mendatar tapi boleh di-scroll kalau layarnya sempit. */
+  .depth-bar { gap: 6px; }
+  .depth-toggle { width: auto; min-width: 0; height: 40px; padding: 0 12px 0 10px; gap: 6px;
+    font-size: 13px; letter-spacing: .02em; box-shadow: var(--shadow-sm); }
+  .depth-toggle .depth-ico { font-size: 19px; }
+  .depth-cur { flex: none; }
+  .depth-menu { box-shadow: var(--shadow-sm); max-width: calc(100vw - 40px); overflow-x: auto; }
+  .depth-opt { padding: 8px 12px; font-size: 11px; }
   .layers {
     display: none; position: static; flex-direction: column; width: auto;
     overflow: visible; box-shadow: var(--shadow-sm);
