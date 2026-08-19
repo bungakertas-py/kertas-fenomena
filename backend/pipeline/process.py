@@ -443,18 +443,20 @@ def currents_hourly(nc_path, out_dir, ref_time):
         v = np.asarray(ds["vo"].isel(time=ti).values, dtype="f4")
         if not lat_desc:
             u = u[::-1]; v = v[::-1]
-        tag = vt.strftime("%Y%m%d_%H")
-        spd = f"curspd_{tag}.webp"
-        render_speed_png(np.sqrt(u * u + v * v), os.path.join(out_dir, spd), scale=1, bounds=cbounds)
-        vec = f"cur_{tag}.json"
-        _write_current_frame(u[::vs, ::vs], v[::vs, ::vs], latN[::vs], lon[::vs], ref_time, os.path.join(out_dir, vec))
-        frames.append({"valid_time": vt.strftime("%Y-%m-%dT%H:00:00Z"), "vec": vec, "spd": spd})
         d = vt.strftime("%Y%m%d")
+        spd = f"curspd_{vt.strftime('%Y%m%d_%H')}.webp"                 # kontur kecepatan PER-JAM
+        render_speed_png(np.sqrt(u * u + v * v), os.path.join(out_dir, spd), scale=1, bounds=cbounds)
+        frames.append({"valid_time": vt.strftime("%Y-%m-%dT%H:00:00Z"), "vec": f"cur_{d}.json", "spd": spd})
         day_u.setdefault(d, []).append(u); day_v.setdefault(d, []).append(v)
     ds.close()
     dates = list(day_u.keys())
     u_daily = np.stack([np.nanmean(np.stack(day_u[d]), axis=0) for d in dates])
     v_daily = np.stack([np.nanmean(np.stack(day_v[d]), axis=0) for d in dates])
+    # Velocity JSON (partikel) cukup HARIAN (nyaris tak berubah antar-jam; per-jam bikin ~700MB) ->
+    # tiap frame per-jam menunjuk cur_{tanggal}.json harinya. Kontur kecepatan tetap per-jam.
+    for i, d in enumerate(dates):
+        _write_current_frame(u_daily[i][::vs, ::vs], v_daily[i][::vs, ::vs], latN[::vs], lon[::vs],
+                             ref_time, os.path.join(out_dir, f"cur_{d}.json"))
     native = {"u": u_daily, "v": v_daily, "lat": latN, "lon": lon, "dates": dates}
     return frames, native
 
