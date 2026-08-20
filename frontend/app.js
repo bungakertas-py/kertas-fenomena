@@ -54,23 +54,40 @@ const map = L.map("map", {
   maxBoundsViscosity: 1.0,   // batas KAKU: tak bisa di-drag ke luar domain data (kiri/kanan/atas/bawah)
 }).setView([0, 150], 3);
 map.createPane("basemap"); map.getPane("basemap").style.zIndex = 380;
+map.createPane("labels"); map.getPane("labels").style.zIndex = 650; map.getPane("labels").style.pointerEvents = "none";   // nama kota DI ATAS data, biar kebaca
 map.createPane("sst"); map.getPane("sst").style.zIndex = 390;   // DI BAWAH overlayPane(400): partikel velocity (leaflet-velocity taruh di overlayPane) muncul di ATAS data
 map.createPane("boxes"); map.getPane("boxes").style.zIndex = 460; map.getPane("boxes").style.pointerEvents = "none";
 map.createPane("zones"); map.getPane("zones").style.zIndex = 462;   // zona indeks yang bisa diklik (pointerEvents default: auto)
 
-// Basemap di lapisan BAWAH: cuma kelihatan di DARAT (laut ketutup data transparan di pantai).
-// Terang (OSM) untuk kebanyakan layer; GELAP (CARTO dark) KHUSUS anomali (palet seismic pusat putih).
-const BASE_LIGHT = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-const BASE_DARK = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png";
+// Basemap cuma kelihatan di DARAT (laut ketutup data yang transparan tepat di pantai).
+// Dipecah DUA lapisan: alas TANPA NAMA di bawah data, dan NAMA di atas data (pane "labels").
+// Ini kuncinya. Dulu nama ikut tenggelam di bawah warna laut jadi kota pesisir tak kebaca.
+const CARTO = (v) => `https://{s}.basemaps.cartocdn.com/${v}/{z}/{x}/{y}{r}.png`;
+// Alas terang diredupkan lewat CSS filter jadi abu abu medium. Hasilnya darat polos rata,
+// tanpa jalan dan warna hutan seperti OSM standar, jadi warna laut yang jadi bintang.
+const BASEMAPS = {
+  batu:  { base: CARTO("light_nolabels"), labels: CARTO("dark_only_labels"),
+           filter: "grayscale(1) brightness(0.62) contrast(0.92)" },
+  gelap: { base: CARTO("dark_nolabels"), labels: CARTO("dark_only_labels"), filter: "" },
+};
+
 L.control.attribution({ prefix: false, position: "bottomright" }).addTo(map);
-const baseTile = L.tileLayer(BASE_LIGHT, {
-  pane: "basemap", subdomains: "abc", crossOrigin: true, maxZoom: 19,
-  attribution: "© OpenStreetMap contributors, © CARTO",
+const TILE_OPT = { subdomains: "abcd", crossOrigin: true, maxZoom: 19 };
+const baseTile = L.tileLayer(BASEMAPS.batu.base, {
+  ...TILE_OPT, pane: "basemap", attribution: "© OpenStreetMap contributors, © CARTO",
 }).addTo(map);
+const labelTile = L.tileLayer(BASEMAPS.batu.labels, { ...TILE_OPT, pane: "labels" }).addTo(map);
+let bmNow = "batu";
 function applyBasemap() {
-  const url = activeLayer === "anom" ? BASE_DARK : BASE_LIGHT;   // basemap gelap hanya untuk layer anomali
-  if (baseTile._url !== url) baseTile.setUrl(url);
+  const key = activeLayer === "anom" ? "gelap" : "batu";   // anomali pakai alas gelap (paletnya pusat putih)
+  if (key === bmNow) return;
+  bmNow = key;
+  const bm = BASEMAPS[key];
+  baseTile.setUrl(bm.base);
+  if (labelTile._url !== bm.labels) labelTile.setUrl(bm.labels);
+  map.getPane("basemap").style.filter = bm.filter;
 }
+map.getPane("basemap").style.filter = BASEMAPS.batu.filter;
 
 function frameRegion() {
   if (!dataBounds || zonesOn || activeLayer === "index") return;   // mode Zona/Indeks: jangan reset view (zoomZone yg atur)
