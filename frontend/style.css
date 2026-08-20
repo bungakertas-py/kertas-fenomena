@@ -673,7 +673,10 @@ html, body {
 .brand-info:hover .material-symbols-outlined { color: var(--on-lime); }
 
 /* ---- Pindah antar-app (Kertas Cuaca <-> Fenomena): panah di brand buka kontainer saudara ---- */
-.brand-row { display: flex; align-items: flex-start; gap: 10px; }
+/* position:relative jadi jangkar kartu saudara yang MENGAMBANG di sebelahnya.
+   Kartu itu TIDAK boleh ikut mengalir, kalau ikut, membukanya menambah tinggi
+   brand-row dan panel Parameter di bawahnya terdorong turun. */
+.brand-row { position: relative; display: flex; align-items: flex-start; gap: 10px; }
 .nav-arrow { flex: none; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
   background: var(--surface); border: 2px solid var(--ink); box-shadow: 2px 2px 0 0 var(--ink);
   cursor: pointer; pointer-events: auto; margin-left: 2px; }
@@ -682,12 +685,22 @@ html, body {
 .nav-arrow:hover .material-symbols-outlined { color: var(--on-lime); }
 .brand-row.nav-open .nav-arrow .material-symbols-outlined { transform: rotate(180deg); }
 /* Kartu app saudara: tersembunyi -> geser muncul ke KANAN saat panah ditekan.
-   Saat tutup border transparan & lebar 0 supaya tak ada sisa. */
+   Saat tutup border transparan & lebar 0 supaya tak ada sisa.
+   max-height WAJIB ikut 0. Tanpa itu kartu yang tertutup tetap memakan tinggi
+   (54px per kartu), brand-row jadi 108px bukan 62px, dan panel Parameter di
+   bawahnya ikut terdorong turun 46px. */
+/* Dua kartu saudara bertumpuk ke bawah, bukan berjajar, supaya tak
+   mendorong lebar brand-row di layar sempit. */
+/* Jarak antar kartu baru muncul saat panelnya terbuka. Kalau gap dipasang
+   permanen, dua kartu selebar 0 tetap menyisakan celah di brand-row. */
+.sibling-links { position: absolute; top: 0; left: 100%; margin-left: 10px;
+  display: flex; flex-direction: column; gap: 0; z-index: 700; }
+.brand-row.nav-open .sibling-links { gap: 8px; }
 .sibling-link { display: flex; align-items: center; gap: 11px; text-decoration: none; color: var(--ink);
   border: var(--bw) solid transparent; background: var(--surface); box-shadow: none;
-  max-width: 0; padding: 9px 0; opacity: 0; overflow: hidden; white-space: nowrap; pointer-events: none;
-  transition: max-width .3s ease, opacity .25s ease, padding .3s ease, border-color .2s ease, box-shadow .2s ease, transform .12s ease; }
-.brand-row.nav-open .sibling-link { max-width: 300px; opacity: 1; padding: 9px 13px; pointer-events: auto;
+  max-width: 0; max-height: 0; padding: 0; opacity: 0; overflow: hidden; white-space: nowrap; pointer-events: none;
+  transition: max-width .3s ease, max-height .3s ease, opacity .25s ease, padding .3s ease, border-color .2s ease, box-shadow .2s ease, transform .12s ease; }
+.brand-row.nav-open .sibling-link { max-width: 300px; max-height: 120px; opacity: 1; padding: 9px 13px; pointer-events: auto;
   border-color: var(--ink); box-shadow: var(--shadow); }
 .sibling-link:hover { background: var(--lime); transform: translate(2px, -2px); box-shadow: -6px 6px 0 0 var(--ink); }
 .sibling-link .pl-ico { flex: none; color: var(--primary); font-size: 26px; }
@@ -826,6 +839,9 @@ html, body {
 
 /* ---- SMARTPHONE (≤640px): layout vertikal ---- */
 @media (max-width: 640px) {
+  /* Di HP tak cukup ruang di kanan brand. Kartu saudara pindah ke BAWAH,
+     tetap mengambang jadi panel Parameter tak ikut terdorong. */
+  .sibling-links { left: 0; top: 100%; margin-left: 0; margin-top: 8px; }
   #ui { padding: 10px; }
   .ui-top { gap: 8px; align-items: flex-start; }
   /* kolom: anak-anaknya rapat ke kiri (jangan meregang mengikuti banner siklon) */
