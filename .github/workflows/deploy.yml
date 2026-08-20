@@ -16,6 +16,9 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+env:
+  SITE_DATA_URL: https://bungakertas-py.github.io/kertas-fenomena/data/output
+
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
@@ -24,16 +27,74 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # butuh riwayat penuh buat membandingkan dgn commit sebelumnya
+
+      # Push yang cuma menyentuh tampilan tak perlu mengunduh 18 GB dan merender ulang
+      # ratusan frame. Data yang sedang tayang masih segar, tinggal diambil lagi.
+      # Jadwal harian dan jalan manual SELALU lewat pipeline penuh.
+      - name: Tentukan jalur deploy
+        id: jalur
+        run: |
+          MODE=penuh
+          NOL=0000000000000000000000000000000000000000
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "$NOL" ]; then
+            if BERUBAH=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" 2>/dev/null); then
+              echo "Berkas yang berubah:"
+              echo "$BERUBAH" | sed 's/^/  /'
+              # Sengaja pakai `case` bawaan shell, bukan grep. Perilaku -q antar varian grep
+              # tidak seragam, dan salah baca di sini berarti backend berubah tapi datanya
+              # tak dibuat ulang. Terlalu mahal untuk dipertaruhkan pada kehalusan satu flag.
+              ADA=0
+              LUAR=0
+              while IFS= read -r F; do
+                if [ -n "$F" ]; then
+                  ADA=1
+                  case "$F" in
+                    frontend/*|README.md) ;;
+                    *) LUAR=1; echo "  di luar frontend: $F" ;;
+                  esac
+                fi
+              done <<BERKAS
+          $BERUBAH
+          BERKAS
+              if [ "$ADA" = 1 ] && [ "$LUAR" = 0 ]; then
+                MODE=cepat
+              fi
+            else
+              echo "Tak bisa membandingkan dengan commit sebelumnya."
+            fi
+          fi
+          echo "Jalur yang dipakai: $MODE"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Install requests (jalur cepat)
+        if: steps.jalur.outputs.mode == 'cepat'
+        run: pip install requests
+
+      # Gagal di sini bukan akhir dunia. continue-on-error bikin job lanjut ke
+      # pipeline penuh di bawah, jadi situs tak pernah tayang dengan data bolong.
+      - name: Ambil data dari situs live (jalur cepat)
+        id: hydrate
+        if: steps.jalur.outputs.mode == 'cepat'
+        continue-on-error: true
+        run: python -m backend.pipeline.hydrate
+
       - name: Install deps
+        if: steps.jalur.outputs.mode != 'cepat' || steps.hydrate.outcome != 'success'
         run: pip install -r requirements.txt
+
       - name: Generate climate data (GFS + OISST + CPC + SINTEX + Copernicus)
+        if: steps.jalur.outputs.mode != 'cepat' || steps.hydrate.outcome != 'success'
         env:
           COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
           COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
         run: python -m backend.pipeline.run
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
