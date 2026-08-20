@@ -289,6 +289,69 @@ def render_subt_png(t, path, scale=1, bounds=None):
     _render_field(t, path, C.SST_MIN, C.SST_MAX, SST_POS, SST_RGB, scale=scale, bounds=bounds)
 
 
+# ================= Render paralel (banyak inti CPU) =================
+# Render tiap frame berdiri sendiri: tak ada urutan yg harus dijaga, tak ada nilai yg dibagi
+# antar frame. Jadi 145 frame SST boleh dibagi ke beberapa proses sekaligus. Berkas hasilnya
+# IDENTIK dgn render berurutan (fungsi & masukan sama persis), yang berubah cuma waktu tempuh.
+def _render_workers(n=None):
+    if n is None:
+        n = int(os.environ.get("KF_RENDER_WORKERS", "0"))     # 0 = otomatis, 1 = matikan paralel
+    if n > 0:
+        return n
+    return max(1, min(8, os.cpu_count() or 1))
+
+
+def _render_one(job):
+    """job = (fungsi_render, args, kwargs). Dipanggil di proses anak, jadi fungsinya wajib
+    level-modul (dikirim by reference, bukan disalin)."""
+    fn, args, kwargs = job
+    try:
+        fn(*args, **kwargs)
+    except Exception as e:
+        path = kwargs.get("path") or (args[1] if len(args) > 1 else "?")
+        raise RuntimeError(f"render gagal di {os.path.basename(str(path))}") from e
+
+
+def render_batch(jobs, workers=None, label=""):
+    """Jalankan daftar render di beberapa proses sekaligus. `jobs` boleh generator (lazy) supaya
+    array besar tak menumpuk di memori. Kembalikan jumlah frame yg dirender."""
+    it = iter(jobs)
+    first = next(it, None)
+    if first is None:
+        return 0
+    # Frame pertama sengaja dirender di proses INDUK dulu. Selain jadi sanity check sebelum
+    # menyebar kerjaan, ini mengisi cache topeng darat (_LMASK/_LCOVER) yg mahal dibangun.
+    # Anak proses hasil fork mewarisi cache itu gratis lewat copy-on-write.
+    _render_one(first)
+    n = 1
+    nw = _render_workers(workers)
+    if nw <= 1:
+        for job in it:
+            _render_one(job)
+            n += 1
+        return n
+    import multiprocessing as mp
+    from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, as_completed, wait
+    methods = mp.get_all_start_methods()
+    ctx = mp.get_context("fork") if "fork" in methods else mp.get_context()   # fork = warisan cache
+    window = nw * 2          # batas job yg "di udara": array 19 MB tak menumpuk saat antre
+    with ProcessPoolExecutor(max_workers=nw, mp_context=ctx) as ex:
+        pending = set()
+        for job in it:
+            if len(pending) >= window:
+                done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                for f in done:
+                    f.result()
+                    n += 1
+            pending.add(ex.submit(_render_one, job))
+        for f in as_completed(pending):
+            f.result()
+            n += 1
+    if label:
+        print(f"  render {label}: {n} frame di {nw} proses")
+    return n
+
+
 # ================= Indeks kotak =================
 def indices_from_anom(anom, meta):
     lat = np.linspace(meta["north"], meta["south"], meta["ny"])
@@ -405,15 +468,17 @@ def currents_frames(nc_path, out_dir, ref_time):
         v = np.asarray(ds["vo"].isel(time=ti).values, dtype="f4")
         if not lat_desc:                                  # jadikan north-up
             u = u[::-1]; v = v[::-1]
-        speed = np.sqrt(u * u + v * v)                    # NATIVE (tanpa downsample)
         spd = f"curspd_{date}.webp"
-        render_speed_png(speed, os.path.join(out_dir, spd), scale=1, bounds=cbounds)
         uu = u[::vs, ::vs]; vv = v[::vs, ::vs]; la = latN[::vs]; lo = lon[::vs]  # partikel distride
         vec = f"cur_{date}.json"
         _write_current_frame(uu, vv, la, lo, ref_time, os.path.join(out_dir, vec))
         frames.append({"date": date, "vec": vec, "spd": spd})
         us_all.append(u); vs_all.append(v); dates.append(date)
-    ds.close()
+    ds.close()   # tutup nc DULU, baru sebar render ke banyak proses
+    render_batch(((render_speed_png,                      # NATIVE (tanpa downsample)
+                   (np.sqrt(us_all[i] * us_all[i] + vs_all[i] * vs_all[i]),
+                    os.path.join(out_dir, f["spd"])), {"scale": 1, "bounds": cbounds})
+                  for i, f in enumerate(frames)), label="kecepatan arus harian")
     native = {"u": np.stack(us_all), "v": np.stack(vs_all), "lat": latN, "lon": lon, "dates": dates}
     return frames, native
 
@@ -437,6 +502,7 @@ def currents_hourly(nc_path, out_dir, ref_time):
     vs = C.CURRENTS["vec_stride"]
     frames = []
     day_u, day_v = OrderedDict(), OrderedDict()
+    specs = []
     for ti in range(ds.sizes["time"]):
         vt = datetime.fromisoformat(str(ds["time"].values[ti])[:19]).replace(tzinfo=timezone.utc)
         u = np.asarray(ds["uo"].isel(time=ti).values, dtype="f4")
@@ -445,10 +511,14 @@ def currents_hourly(nc_path, out_dir, ref_time):
             u = u[::-1]; v = v[::-1]
         d = vt.strftime("%Y%m%d")
         spd = f"curspd_{vt.strftime('%Y%m%d_%H')}.webp"                 # kontur kecepatan PER-JAM
-        render_speed_png(np.sqrt(u * u + v * v), os.path.join(out_dir, spd), scale=1, bounds=cbounds)
         frames.append({"valid_time": vt.strftime("%Y-%m-%dT%H:00:00Z"), "vec": f"cur_{d}.json", "spd": spd})
         day_u.setdefault(d, []).append(u); day_v.setdefault(d, []).append(v)
-    ds.close()
+        specs.append((spd, u, v))
+    ds.close()   # tutup nc DULU, baru sebar render ke banyak proses
+    # Magnitude dihitung lazy (generator) supaya array kecepatan tak menumpuk 145 sekaligus.
+    render_batch(((render_speed_png, (np.sqrt(u * u + v * v), os.path.join(out_dir, spd)),
+                   {"scale": 1, "bounds": cbounds}) for spd, u, v in specs), label="kecepatan arus per-jam")
+    del specs
     dates = list(day_u.keys())
     u_daily = np.stack([np.nanmean(np.stack(day_u[d]), axis=0) for d in dates])
     v_daily = np.stack([np.nanmean(np.stack(day_v[d]), axis=0) for d in dates])
@@ -479,7 +549,7 @@ def currents_depth(nc_path, out_dir, ref_time):
     lev_idx = [int(np.argmin(np.abs(depvals - t))) for t in targets]
     used = [round(float(depvals[i]), 1) for i in lev_idx]
     dates = [str(ds["time"].values[ti])[:10].replace("-", "") for ti in range(ds.sizes["time"])]
-    frames = {}
+    frames, jobs = {}, []
     for k, di in enumerate(lev_idx, start=1):
         lst = []
         for ti in range(ds.sizes["time"]):
@@ -488,12 +558,14 @@ def currents_depth(nc_path, out_dir, ref_time):
             if not lat_desc:
                 u = u[::-1]; v = v[::-1]
             spd = f"curspd_d{k}_{dates[ti]}.webp"
-            render_speed_png(np.sqrt(u * u + v * v), os.path.join(out_dir, spd), scale=1, bounds=cbounds)
+            jobs.append((render_speed_png, (np.sqrt(u * u + v * v), os.path.join(out_dir, spd)),
+                         {"scale": 1, "bounds": cbounds}))
             vec = f"cur_d{k}_{dates[ti]}.json"
             _write_current_frame(u[::vs, ::vs], v[::vs, ::vs], latN[::vs], lon[::vs], ref_time, os.path.join(out_dir, vec))
             lst.append({"date": dates[ti], "vec": vec, "spd": spd})
         frames[str(k)] = lst
-    ds.close()
+    ds.close()   # tutup nc DULU, baru sebar render ke banyak proses
+    render_batch(jobs, label="kecepatan arus kedalaman")
     return {"depth_labels": [f"{t} m" for t in targets], "depth_used": used, "frames": frames}
 
 
@@ -517,10 +589,11 @@ def salinity_frames(nc_path, out_dir):
         if not lat_desc:
             so = so[::-1]                                             # north-up
         png = f"sal_{date}.webp"
-        render_salinity_png(so, os.path.join(out_dir, png), scale=1, bounds=sbounds)
         frames.append({"date": date, "png": png})
         sal_all.append(so); dates.append(date)
-    ds.close()
+    ds.close()   # tutup nc DULU, baru sebar render ke banyak proses
+    render_batch(((render_salinity_png, (sal_all[i], os.path.join(out_dir, f["png"])),
+                   {"scale": 1, "bounds": sbounds}) for i, f in enumerate(frames)), label="salinitas")
     native = {"sal": np.stack(sal_all), "lat": latN, "lon": lon, "dates": dates}
     return frames, native
 
@@ -553,9 +626,10 @@ def sst_hourly_steps(nc_path, out_dir):
             sea_mask = np.isfinite(sst)
         tag = vt.strftime("%Y%m%d_%H")
         png = f"sst_{tag}.webp"
-        render_sst_png(sst, os.path.join(out_dir, png), scale=1, bounds=bounds)
         per_step.append({"vt": vt, "date": vt.strftime("%Y%m%d"), "month": vt.month, "sst": sst, "png": png})
-    ds.close()
+    ds.close()   # tutup nc DULU, baru sebar render ke banyak proses
+    render_batch(((render_sst_png, (s["sst"], os.path.join(out_dir, s["png"])),
+                   {"scale": 1, "bounds": bounds}) for s in per_step), label="SST per-jam")
     return per_step, meta, sea_mask
 
 
@@ -575,7 +649,7 @@ def subtemp_frames(nc_path, out_dir):
     lev_idx = [int(np.argmin(np.abs(depvals - t))) for t in targets]     # level CMEMS terdekat tiap target
     used = [round(float(depvals[i]), 1) for i in lev_idx]
     dates = [str(ds["time"].values[ti])[:10].replace("-", "") for ti in range(ds.sizes["time"])]
-    frames = {}
+    frames, jobs = {}, []
     for k, di in enumerate(lev_idx):
         lst = []
         for ti in range(ds.sizes["time"]):
@@ -583,10 +657,12 @@ def subtemp_frames(nc_path, out_dir):
             if not lat_desc:
                 t2 = t2[::-1]
             png = f"subt_{k}_{dates[ti]}.webp"
-            render_subt_png(t2, os.path.join(out_dir, png), scale=1, bounds=sbounds)
+            jobs.append((render_subt_png, (t2, os.path.join(out_dir, png)),
+                         {"scale": 1, "bounds": sbounds}))
             lst.append({"date": dates[ti], "png": png})
         frames[str(k)] = lst
-    ds.close()
+    ds.close()   # tutup nc DULU, baru sebar render ke banyak proses
+    render_batch(jobs, label="suhu bawah permukaan")
     return {"depths": list(targets), "depth_used": used, "depth_labels": [f"{t} m" for t in targets],
             "frames": frames, "bounds": sbounds, "dates": dates}
 

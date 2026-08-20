@@ -113,6 +113,7 @@ def main():
     days = OrderedDict()
     for s in per_step:
         days.setdefault(s["date"], []).append(s)
+    grid_bounds = _edge_bounds(meta["west"], meta["east"], meta["north"], meta["south"], meta["nx"], meta["ny"])
     anom_frames = []
     anom_fields = []
     sst_day_fields = []       # rata-rata SST harian -> point_data SST HARIAN (bukan per-jam, biar ringan)
@@ -125,21 +126,21 @@ def main():
         sst_day_fields.append(sst_day)
         idx = process.indices_from_anom(anom, meta)
         apng = f"anom_{date}.webp"
-        process.render_anom_png(anom, os.path.join(C.OUT_DIR, apng), scale=1,   # grid CMEMS sudah 1/12 -> native
-                                bounds=_edge_bounds(meta["west"], meta["east"], meta["north"], meta["south"], meta["nx"], meta["ny"]))
         anom_frames.append({"date": date, "png": apng,
                             "nino12": idx["nino12"], "nino3": idx["nino3"],
                             "nino34": idx["nino34"], "nino4": idx["nino4"], "dmi": idx["dmi"]})
         print(f"  anomali {date}  nino34={idx['nino34']:+.2f}  dmi={idx['dmi']:+.2f}")
+    process.render_batch(((process.render_anom_png, (anom_fields[i], os.path.join(C.OUT_DIR, f["png"])),
+                           {"scale": 1, "bounds": grid_bounds})   # grid CMEMS sudah 1/12 -> native
+                          for i, f in enumerate(anom_frames)), label="anomali harian")
 
     # ---- Klimatologi 12 bulan (SST absolut, mask laut) ----
-    clim_frames = []
-    for mth in range(1, 13):
-        cfield = np.where(sea_mask, process.clim_domain(mth, meta), np.nan)
-        cpng = f"clim_{mth:02d}.webp"
-        process.render_sst_png(cfield, os.path.join(C.OUT_DIR, cpng), scale=1,   # grid CMEMS native
-                               bounds=_edge_bounds(meta["west"], meta["east"], meta["north"], meta["south"], meta["nx"], meta["ny"]))
-        clim_frames.append({"month": mth, "png": cpng})
+    clim_frames = [{"month": mth, "png": f"clim_{mth:02d}.webp"} for mth in range(1, 13)]
+    process.render_batch(((process.render_sst_png,
+                           (np.where(sea_mask, process.clim_domain(f["month"], meta), np.nan),
+                            os.path.join(C.OUT_DIR, f["png"])),
+                           {"scale": 1, "bounds": grid_bounds})   # grid CMEMS native
+                          for f in clim_frames), label="klimatologi bulanan")
 
     # Darat = poligon vektor 10m statik (frontend/data/land_10m.geojson, dibuat prep_land.py).
 

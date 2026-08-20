@@ -24,3 +24,6 @@ frontend/data/terrain.png
 frontend/data/land_10m.geojson
 backend/pipeline/prep_terrain.py
 backend/pipeline/prep_land.py
+
+# Skrip uji lokal
+scratchpad/
