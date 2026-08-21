@@ -913,6 +913,22 @@ $("share-btn").addEventListener("click", async () => {
 function toast(m) { const t = $("toast"); t.textContent = m; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 1800); }
 $("ctrl-toggle").addEventListener("click", (e) => e.currentTarget.parentElement.classList.toggle("ctrl-open"));
 $("param-toggle").addEventListener("click", (e) => e.currentTarget.parentElement.classList.toggle("param-open"));
+
+// Sembunyikan/tampilkan panel kiri (Parameter + Kedalaman + Indeks Iklim). Brand
+// sengaja TETAP terlihat, jadi identitas, tombol Tentang, dan panah pindah app
+// tak ikut hilang.
+function togglePanels() {
+  const col = document.querySelector("#ui .col:not(.items-end)");
+  const btn = $("panel-toggle");
+  if (!col || !btn) return;
+  const tutup = col.classList.toggle("panels-hidden");
+  const ic = btn.querySelector(".material-symbols-outlined");
+  if (ic) ic.textContent = tutup ? "chevron_right" : "chevron_left";
+  const label = tutup ? "Tampilkan panel" : "Sembunyikan panel";
+  btn.setAttribute("aria-label", label);
+  btn.title = label;
+}
+$("panel-toggle").addEventListener("click", togglePanels);
 $("data-fresh").addEventListener("click", () => $("data-fresh").classList.toggle("open"));
 
 /* ---- Init ---- */

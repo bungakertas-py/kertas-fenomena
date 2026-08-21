@@ -57,6 +57,35 @@ html, body {
 }
 .ui-top { display: flex; justify-content: space-between; align-items: flex-start; }
 .col { display: flex; flex-direction: column; gap: 12px; }
+
+/* ---- Buka-tutup panel kiri (Parameter + Kedalaman + Indeks Iklim) ---- */
+/* Tab kecil di tepi KIRI kontainer Parameter, sejajar tengahnya, panah biru.
+   Lebarnya PAS sebesar tonjolannya dan berdiri sendiri, tidak mengandalkan panel
+   untuk menutupi sisanya. Itu penting: kalau tab dibuat lebar lalu separuhnya
+   disembunyikan di balik panel, begitu panel digeser keluar separuh yang tadinya
+   tersembunyi ikut nongol dan tabnya terlihat melar. */
+.layer-bar { position: relative; }
+.panel-toggle {
+  position: absolute; left: -18px; top: 50%; transform: translateY(-50%);
+  width: 18px; height: 46px; padding: 0; cursor: pointer; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface); border: var(--bw) solid var(--ink);
+  color: var(--primary); pointer-events: auto;
+}
+.panel-toggle:hover { background: var(--primary); color: var(--on-primary); }
+.panel-toggle .material-symbols-outlined { font-size: 17px; line-height: 1; margin-left: -3px; }
+
+/* Menyembunyikan = MENGGESER keluar bingkai ke kiri, bukan display:none.
+   Alasannya penting: transform TIDAK mengubah tata letak, jadi tinggi .layer-bar
+   tetap dan tab di sebelahnya tak ikut bergeser sedikit pun. Kalau pakai
+   display:none, kontainernya mengempis dan tombolnya melompat naik ke bawah brand. */
+.layers, .depth-bar, .index-bar { transition: transform .28s ease; }
+.col.panels-hidden .layers,
+.col.panels-hidden .depth-bar,
+.col.panels-hidden .index-bar {
+  transform: translateX(calc(-100% - 40px));   /* 40px = lewat padding #ui + ruang bayangan */
+  pointer-events: none;
+}
 .col.items-end { align-items: flex-end; }
 
 /* Panel dasar neubrutalist */
@@ -828,6 +857,9 @@ html, body {
 /* ---- TABLET (≤1024px): kecilkan panel, legenda bisa di-scroll ---- */
 @media (max-width: 1024px) {
   #ui { padding: 14px; }
+  /* padding #ui menyusut jadi 14px, tab ikut dikecilkan biar tak terpotong tepi layar */
+  .panel-toggle { left: -13px; width: 13px; }
+  .panel-toggle .material-symbols-outlined { font-size: 15px; margin-left: -4px; }
   .layers, .selects { width: 200px; }
   .layer-btn { padding: 10px 14px; font-size: 14px; }
   .brand-text strong { font-size: 18px; }
@@ -891,6 +923,8 @@ html, body {
   .cyc-note-top { white-space: normal; }   /* boleh membungkus kalau sempit */
 
   /* ===== Variabel → dropdown "Parameter" VERTIKAL, ikon saja (kiri) ===== */
+  .panel-toggle { display: none; }
+
   .layer-bar {
     position: static; left: auto; right: auto; top: auto;
     display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
