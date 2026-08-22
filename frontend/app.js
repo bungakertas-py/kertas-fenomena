@@ -1013,13 +1013,18 @@ function _ikonDari(btn) {
   return i ? i.textContent.trim() : "";
 }
 function _labelDari(btn) {
-  // .lb-txt DULU, baru data-tip. data-tip sering berisi KEPANJANGAN singkatan
-  // yang jauh terlalu panjang untuk tombol selebar sepertiga layar.
+  // Urutan: .lb-txt, lalu TEKS TOMBOL ITU SENDIRI, baru data-tip.
+  // data-tip sering berisi keterangan panjang ("Daya tampung PM2,5",
+  // "Convective Available Potential Energy") yang tak muat di tombol selebar
+  // sepertiga layar. Teks tombolnya sendiri sudah ringkas ("PM2.5", "CAPE").
+  // Ikon dikeluarkan dulu, kalau tidak nama ligature Material ikut terbaca.
   const t = btn.querySelector(".lb-txt")?.textContent.trim();
   if (t) return t;
-  if (btn.dataset.tip && btn.dataset.tip.length <= 18) return btn.dataset.tip;
-  const teks = btn.textContent.trim();
-  return teks || btn.dataset.tip || btn.getAttribute("aria-label") || "";
+  const salin = btn.cloneNode(true);
+  salin.querySelectorAll(".material-symbols-outlined").forEach((e) => e.remove());
+  const teks = salin.textContent.replace(/\s+/g, " ").trim();
+  if (teks) return teks;
+  return btn.dataset.tip || btn.getAttribute("aria-label") || "";
 }
 
 function bangunLowbar() {
