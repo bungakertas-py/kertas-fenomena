@@ -411,7 +411,15 @@ function buildTicks() {
     let lbl = "", isDay = false;
     if (activeLayer === "clim") { lbl = MONTHS[f.month - 1]; isDay = true; }
     else if (!f.valid_time && f.date) { lbl = `${+f.date.slice(6, 8)} ${MONTHS[+f.date.slice(4, 6) - 1]}`; isDay = true; }   // frame harian
-    else { const w = toWIB(f.valid_time), day = w.getUTCDate(); isDay = i === 0 || day !== prev; prev = day; lbl = isDay ? `${day} ${MONTHS[w.getUTCMonth()]}` : ""; }
+    else {
+      const w = toWIB(f.valid_time), day = w.getUTCDate();
+      // Frame 0 hanya dilabeli kalau memang hari tersendiri. Di layer per-jam dulu
+      // labelnya dipaksa muncul lalu menyerempet label tengah malam pertama (bertumpuk
+      // di awal). Sekarang tanggal cuma di pergantian hari yang sebenarnya.
+      const nextDay = (n > 1 && frames[1].valid_time) ? toWIB(frames[1].valid_time).getUTCDate() : null;
+      isDay = i === 0 ? (n <= 1 || day !== nextDay) : day !== prev;
+      prev = day; lbl = isDay ? `${day} ${MONTHS[w.getUTCMonth()]}` : "";
+    }
     return `<div class="tl-tick${isDay ? " day" : ""}${edge}" style="left:${pos}%"><span class="tl-tick-mark"></span>${lbl ? `<span class="tl-tick-lbl">${lbl}</span>` : ""}</div>`;
   }).join("");
 }
