@@ -68,10 +68,12 @@ map.createPane("zones"); map.getPane("zones").style.zIndex = 462;   // zona inde
 const ESRI = (n) => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/${n}/MapServer/tile/{z}/{y}/{x}`;
 // Alas diredupkan lewat CSS filter jadi abu abu medium. Darat polos rata, jadi warna
 // laut yang jadi bintang. (Esri light gray sudah agak gelap, brightness dinaikkan.)
+// Esri Gray Base sudah membawa label wilayah (negara/provinsi/kota) sendiri, jadi
+// TAK perlu lapisan label terpisah. Dulu CARTO base-nya benar-benar nolabels lalu
+// ditambah dark_only_labels; kalau pola itu dipakai di Esri, label jadi GANDA.
 const BASEMAPS = {
-  batu:  { base: ESRI("World_Light_Gray_Base"), labels: ESRI("World_Light_Gray_Reference"),
-           filter: "grayscale(1) brightness(0.82) contrast(0.95)" },
-  gelap: { base: ESRI("World_Dark_Gray_Base"), labels: ESRI("World_Dark_Gray_Reference"), filter: "" },
+  batu:  { base: ESRI("World_Light_Gray_Base"), filter: "grayscale(1) brightness(0.82) contrast(0.95)" },
+  gelap: { base: ESRI("World_Dark_Gray_Base"), filter: "" },
 };
 
 L.control.attribution({ prefix: false, position: "bottomright" }).addTo(map);
@@ -79,7 +81,6 @@ const TILE_OPT = { crossOrigin: true, maxZoom: 19, maxNativeZoom: 16 };
 const baseTile = L.tileLayer(BASEMAPS.batu.base, {
   ...TILE_OPT, pane: "basemap", attribution: "Tiles &copy; Esri",
 }).addTo(map);
-const labelTile = L.tileLayer(BASEMAPS.batu.labels, { ...TILE_OPT, pane: "labels" }).addTo(map);
 let bmNow = "batu";
 function applyBasemap() {
   const key = activeLayer === "anom" ? "gelap" : "batu";   // anomali pakai alas gelap (paletnya pusat putih)
@@ -87,7 +88,6 @@ function applyBasemap() {
   bmNow = key;
   const bm = BASEMAPS[key];
   baseTile.setUrl(bm.base);
-  if (labelTile._url !== bm.labels) labelTile.setUrl(bm.labels);
   map.getPane("basemap").style.filter = bm.filter;
 }
 map.getPane("basemap").style.filter = BASEMAPS.batu.filter;
