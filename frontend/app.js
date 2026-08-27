@@ -62,19 +62,22 @@ map.createPane("zones"); map.getPane("zones").style.zIndex = 462;   // zona inde
 // Basemap cuma kelihatan di DARAT (laut ketutup data yang transparan tepat di pantai).
 // Dipecah DUA lapisan: alas TANPA NAMA di bawah data, dan NAMA di atas data (pane "labels").
 // Ini kuncinya. Dulu nama ikut tenggelam di bawah warna laut jadi kota pesisir tak kebaca.
-const CARTO = (v) => `https://{s}.basemaps.cartocdn.com/${v}/{z}/{x}/{y}{r}.png`;
-// Alas terang diredupkan lewat CSS filter jadi abu abu medium. Hasilnya darat polos rata,
-// tanpa jalan dan warna hutan seperti OSM standar, jadi warna laut yang jadi bintang.
+// Basemap Esri World Gray Canvas (GRATIS, tanpa API key). CARTO menghentikan akses
+// tanpa-key (tile bertempel watermark "API key required"). Pola URL {z}/{y}/{x},
+// tanpa subdomain/{r}, native sampai zoom 16.
+const ESRI = (n) => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/${n}/MapServer/tile/{z}/{y}/{x}`;
+// Alas diredupkan lewat CSS filter jadi abu abu medium. Darat polos rata, jadi warna
+// laut yang jadi bintang. (Esri light gray sudah agak gelap, brightness dinaikkan.)
 const BASEMAPS = {
-  batu:  { base: CARTO("light_nolabels"), labels: CARTO("dark_only_labels"),
-           filter: "grayscale(1) brightness(0.62) contrast(0.92)" },
-  gelap: { base: CARTO("dark_nolabels"), labels: CARTO("dark_only_labels"), filter: "" },
+  batu:  { base: ESRI("World_Light_Gray_Base"), labels: ESRI("World_Light_Gray_Reference"),
+           filter: "grayscale(1) brightness(0.82) contrast(0.95)" },
+  gelap: { base: ESRI("World_Dark_Gray_Base"), labels: ESRI("World_Dark_Gray_Reference"), filter: "" },
 };
 
 L.control.attribution({ prefix: false, position: "bottomright" }).addTo(map);
-const TILE_OPT = { subdomains: "abcd", crossOrigin: true, maxZoom: 19 };
+const TILE_OPT = { crossOrigin: true, maxZoom: 19, maxNativeZoom: 16 };
 const baseTile = L.tileLayer(BASEMAPS.batu.base, {
-  ...TILE_OPT, pane: "basemap", attribution: "© OpenStreetMap contributors, © CARTO",
+  ...TILE_OPT, pane: "basemap", attribution: "Tiles &copy; Esri",
 }).addTo(map);
 const labelTile = L.tileLayer(BASEMAPS.batu.labels, { ...TILE_OPT, pane: "labels" }).addTo(map);
 let bmNow = "batu";
